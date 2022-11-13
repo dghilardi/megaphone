@@ -1,0 +1,1 @@
+pub mod megaphone_service;
