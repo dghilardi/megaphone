@@ -8,6 +8,7 @@ use axum::handler::Handler;
 use axum::http::{header, HeaderMap};
 use axum::middleware::AddExtension;
 use axum::response::IntoResponse;
+use uuid::Uuid;
 use crate::service::megaphone_service::MegaphoneService;
 
 async fn create_handler(
@@ -20,7 +21,8 @@ async fn read_handler(
     Path(id): Path<String>,
     State(svc): State<Arc<MegaphoneService>>,
 ) -> impl IntoResponse {
-    let stream = svc.read_channel().await;
+    let uuid = Uuid::parse_str(&id).unwrap();
+    let stream = svc.read_channel(uuid).await;
     let body = StreamBody::new(stream);
 
     body
