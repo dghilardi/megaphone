@@ -1,6 +1,7 @@
 pub mod service;
 
 use std::sync::Arc;
+use std::time::Duration;
 use axum::{routing::{get, post}, Router, Extension};
 use axum::body::StreamBody;
 use axum::extract::{Path, State};
@@ -22,7 +23,7 @@ async fn read_handler(
     State(svc): State<Arc<MegaphoneService>>,
 ) -> impl IntoResponse {
     let uuid = Uuid::parse_str(&id).unwrap();
-    let stream = svc.read_channel(uuid).await;
+    let stream = svc.read_channel(uuid, Duration::from_secs(10)).await;
     let body = StreamBody::new(stream);
 
     body

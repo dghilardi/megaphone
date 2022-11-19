@@ -1,10 +1,13 @@
 use std::io;
 use std::sync::Arc;
+use std::time::Duration;
 use axum::BoxError;
 use axum::response::ErrorResponse;
 use dashmap::DashMap;
+use futures::{FutureExt, select};
 use tokio::sync::mpsc::{Sender, Receiver, channel};
 use tokio::sync::Mutex;
+use tokio::time::Instant;
 use uuid::Uuid;
 
 type MessageData = String;
@@ -39,15 +42,20 @@ impl MegaphoneService {
         uuid.to_string()
     }
 
-    pub async fn read_channel(&self, id: Uuid) -> impl futures::stream::Stream<Item=Result<String, BoxError>> {
+    pub async fn read_channel(&self, id: Uuid, timeout: Duration) -> impl futures::stream::Stream<Item=Result<String, BoxError>> {
+        let deadline = Instant::now() + timeout;
         let Some(channel) = self.buffer.get(&id) else {
             panic!("handle channel not found");
         };
-        futures::stream::unfold(channel.rx.clone(), |rx| async {
+        futures::stream::unfold(channel.rx.clone(), move |rx| async move {
             let mut guard = rx.lock().await;
-            let maybe_next = guard.recv().await;
+            let next = tokio::time::timeout_at(deadline, guard.recv()).await;
             drop(guard);
-            maybe_next.map(|next| (Ok(next), rx))
+            match next {
+                Ok(Some(msg)) => Some((Ok(msg), rx)),
+                Ok(None) => None,
+                Err(_) => None,
+            }
         })
     }
 }
