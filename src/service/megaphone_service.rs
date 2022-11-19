@@ -6,6 +6,7 @@ use axum::response::ErrorResponse;
 use dashmap::DashMap;
 use futures::{FutureExt, select};
 use tokio::sync::mpsc::{Sender, Receiver, channel};
+use tokio::sync::mpsc::error::SendError;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 use uuid::Uuid;
@@ -47,15 +48,23 @@ impl MegaphoneService {
         let Some(channel) = self.buffer.get(&id) else {
             panic!("handle channel not found");
         };
-        futures::stream::unfold(channel.rx.clone(), move |rx| async move {
-            let mut guard = rx.lock().await;
+        let Ok(guard) = channel.rx.clone().try_lock_owned() else {
+            panic!("mutex already locked");
+        };
+        futures::stream::unfold(guard, move |mut guard| async move {
             let next = tokio::time::timeout_at(deadline, guard.recv()).await;
-            drop(guard);
             match next {
-                Ok(Some(msg)) => Some((Ok(msg), rx)),
+                Ok(Some(msg)) => Some((Ok(msg), guard)),
                 Ok(None) => None,
                 Err(_) => None,
             }
         })
+    }
+
+    pub async fn write_into_channel(&self, id: Uuid, message: MessageData) -> Result<(), SendError<MessageData>> {
+        let Some(channel) = self.buffer.get(&id) else {
+            panic!("handle channel not found");
+        };
+        channel.tx.send(message).await
     }
 }

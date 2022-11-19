@@ -326,6 +326,7 @@ dependencies = [
  "axum",
  "dashmap",
  "futures",
+ "serde_json",
  "tokio",
  "uuid",
 ]
