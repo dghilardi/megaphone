@@ -1,42 +1,48 @@
-pub mod service;
-
 use std::sync::Arc;
 use std::time::Duration;
-use axum::{routing::{get, post}, Router};
+
+use axum::{BoxError, Router, routing::{get, post}};
 use axum::body::StreamBody;
-use axum::extract::{Path, State, Json};
+use axum::extract::{Json, Path, State};
 use axum::handler::Handler;
-use axum::http::{header, HeaderMap, StatusCode};
-use axum::middleware::AddExtension;
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use serde_json::json;
 use uuid::Uuid;
+use crate::dto::message::EventDto;
+use futures::StreamExt;
 use crate::service::megaphone_service::MegaphoneService;
 
+pub mod service;
+mod dto;
+
 async fn create_handler(
-    State(svc): State<Arc<MegaphoneService>>,
+    State(svc): State<Arc<MegaphoneService<EventDto>>>,
 ) -> String {
     svc.create_channel().await
 }
 
 async fn read_handler(
     Path(id): Path<String>,
-    State(svc): State<Arc<MegaphoneService>>,
+    State(svc): State<Arc<MegaphoneService<EventDto>>>,
 ) -> impl IntoResponse {
     let uuid = Uuid::parse_str(&id).unwrap();
-    let stream = svc.read_channel(uuid, Duration::from_secs(10)).await;
+    let stream = svc
+        .read_channel(uuid, Duration::from_secs(10))
+        .await
+        .map(|evt| serde_json::to_string(&evt).map_err(BoxError::from));
     let body = StreamBody::new(stream);
 
     body
 }
 
 async fn write_handler(
-    Path(id): Path<String>,
-    State(svc): State<Arc<MegaphoneService>>,
+    Path((channel_id, stream_id)): Path<(String, String)>,
+    State(svc): State<Arc<MegaphoneService<EventDto>>>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let uuid = Uuid::parse_str(&id).unwrap();
-    svc.write_into_channel(uuid, serde_json::to_string(&body).unwrap()).await
+    let uuid = Uuid::parse_str(&channel_id).unwrap();
+    svc.write_into_channel(uuid, EventDto::new(stream_id, body)).await
         .expect("asd");
     (StatusCode::CREATED, Json(json!({ "status": "ok" })))
 }
@@ -48,7 +54,7 @@ async fn main() {
     let app = Router::with_state(service)
 
         .route("/create", post(create_handler))
-        .route("/write/:id", post(write_handler))
+        .route("/write/:channel_id/:stream_id", post(write_handler))
         .route("/read/:id", get(read_handler));
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())

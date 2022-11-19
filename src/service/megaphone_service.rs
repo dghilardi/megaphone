@@ -1,24 +1,19 @@
-use std::io;
 use std::sync::Arc;
 use std::time::Duration;
-use axum::BoxError;
-use axum::response::ErrorResponse;
+
 use dashmap::DashMap;
-use futures::{FutureExt, select};
-use tokio::sync::mpsc::{Sender, Receiver, channel};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 use uuid::Uuid;
 
-type MessageData = String;
-
-pub struct BufferedChannel {
-    tx: Sender<MessageData>,
-    rx: Arc<Mutex<Receiver<MessageData>>>,
+pub struct BufferedChannel<Event> {
+    tx: Sender<Event>,
+    rx: Arc<Mutex<Receiver<Event>>>,
 }
 
-impl BufferedChannel {
+impl <Event> BufferedChannel<Event> {
     fn new() -> Self {
         let (tx, rx) = channel(100);
         Self {
@@ -28,11 +23,11 @@ impl BufferedChannel {
     }
 }
 
-pub struct MegaphoneService {
-    buffer: DashMap<Uuid, BufferedChannel>
+pub struct MegaphoneService<MessageData> {
+    buffer: DashMap<Uuid, BufferedChannel<MessageData>>
 }
 
-impl MegaphoneService {
+impl <Event> MegaphoneService<Event> {
     pub fn new() -> Self {
         Self { buffer: Default::default() }
     }
@@ -43,7 +38,7 @@ impl MegaphoneService {
         uuid.to_string()
     }
 
-    pub async fn read_channel(&self, id: Uuid, timeout: Duration) -> impl futures::stream::Stream<Item=Result<String, BoxError>> {
+    pub async fn read_channel(&self, id: Uuid, timeout: Duration) -> impl futures::stream::Stream<Item=Event> {
         let deadline = Instant::now() + timeout;
         let Some(channel) = self.buffer.get(&id) else {
             panic!("handle channel not found");
@@ -54,14 +49,14 @@ impl MegaphoneService {
         futures::stream::unfold(guard, move |mut guard| async move {
             let next = tokio::time::timeout_at(deadline, guard.recv()).await;
             match next {
-                Ok(Some(msg)) => Some((Ok(msg), guard)),
+                Ok(Some(msg)) => Some((msg, guard)),
                 Ok(None) => None,
                 Err(_) => None,
             }
         })
     }
 
-    pub async fn write_into_channel(&self, id: Uuid, message: MessageData) -> Result<(), SendError<MessageData>> {
+    pub async fn write_into_channel(&self, id: Uuid, message: Event) -> Result<(), SendError<Event>> {
         let Some(channel) = self.buffer.get(&id) else {
             panic!("handle channel not found");
         };
