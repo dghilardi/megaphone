@@ -1,0 +1,17 @@
+version: '3.4'
+
+services:
+  megaphone:
+    build:
+      context: ..
+      dockerfile: docker/megaphone-be.dockerfile
+      target: dist
+    image: megaphone-be:latest
+    deploy:
+      replicas: 5
+    init: true
+    healthcheck:
+      test: "echo"
+      interval: 1s
+    environment:
+      - RUST_LOG=debug
