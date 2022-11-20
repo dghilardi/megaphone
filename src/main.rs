@@ -30,7 +30,13 @@ async fn read_handler(
     let stream = svc
         .read_channel(uuid, Duration::from_secs(10))
         .await
-        .map(|evt| serde_json::to_string(&evt).map_err(BoxError::from));
+        .map(|evt| serde_json::to_string(&evt)
+            .map(|mut s| {
+                s.push('\n');
+                s
+            })
+            .map_err(BoxError::from)
+        );
     let body = StreamBody::new(stream);
 
     body
