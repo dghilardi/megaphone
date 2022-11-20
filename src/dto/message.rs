@@ -2,18 +2,19 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EventDto {
+    #[serde(rename = "sid")]
     pub stream_id: String,
-    pub payload: serde_json::Value,
+    pub body: serde_json::Value,
 }
 
 impl EventDto {
     pub fn new(
         stream_id: String,
-        payload: serde_json::Value,
+        body: serde_json::Value,
     ) -> Self {
         Self {
             stream_id,
-            payload,
+            body,
         }
     }
 }
