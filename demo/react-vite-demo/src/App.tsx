@@ -36,7 +36,10 @@ const spawnReader = async (channelId: string, ctx: ReaderCtx) => {
           value
             .trim()
             .split('\n')
-            .forEach(chunk => ctx.subscriber.next({ text: JSON.parse(chunk).body?.message as string || '-', sent: false, ts: '-' }));
+            .forEach(chunk => {
+              const msg = JSON.parse(chunk);
+              ctx.subscriber.next({ text: msg.body?.message as string || '-', sent: msg.body?.sender === channelId, ts: '-' })
+            });
         }
       });
   }
@@ -86,7 +89,7 @@ function ChatApp({ room }: ChatAppParams) {
   }
 
   const onSubmit: React.FormEventHandler<HTMLFormElement> = (event) => {
-    fetch(`/send/${room}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message }) });
+    fetch(`/send/${room}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message, sender: subscriptionId }) });
     setMessage('');
     event.preventDefault();
   };

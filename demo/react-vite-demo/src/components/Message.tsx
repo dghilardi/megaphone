@@ -5,7 +5,7 @@ export interface MessageArgs {
 }
 
 export function Message({ direction, message, ts }: MessageArgs) {
-    if (direction === 'sent') {
+    if (direction === 'received') {
         return <div className="flex w-full mt-2 space-x-3 max-w-xs">
             <div className="flex-shrink-0 h-10 w-10 rounded-full bg-gray-300"></div>
             <div>

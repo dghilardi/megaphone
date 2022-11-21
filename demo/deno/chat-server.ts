@@ -39,11 +39,16 @@ router.post('/send/:room', async (ctx) => {
     return;
   }
   const req = await ctx.request.body({ type: 'json' }).value;
-  
+  const timestamp = new Date().toISOString();
+
   const promises = subscriptions.map(channelUuid => fetch(`${megaphoneUrl}/write/${channelUuid}/new-message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message: req.message }),
+    body: JSON.stringify({
+      sender: req.sender,
+      timestamp,
+      message: req.message,
+    }),
   }));
 
   await Promise.all(promises);
