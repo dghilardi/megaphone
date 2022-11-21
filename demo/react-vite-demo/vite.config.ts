@@ -11,7 +11,7 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
-      '/write': {
+      '/send': {
         target: 'http://localhost:3040',
         changeOrigin: true,
         secure: false,

@@ -20,22 +20,25 @@ interface ReaderCtx {
 
 const spawnReader = async (channelId: string, ctx: ReaderCtx) => {
   while (!ctx.terminate) {
-      console.log(`reading channel ${channelId}`);
-      await fetch(`/read/${channelId}`)
-          .then(async (resp) => {
-              if (!resp.ok) {
-                  throw new Error("HTTP status code: " + resp.status);
-              }
-              const reader = resp.body!
-                  .pipeThrough(new TextDecoderStream())
-                  .getReader();
+    console.log(`reading channel ${channelId}`);
+    await fetch(`/read/${channelId}`)
+      .then(async (resp) => {
+        if (!resp.ok) {
+          throw new Error("HTTP status code: " + resp.status);
+        }
+        const reader = resp.body!
+          .pipeThrough(new TextDecoderStream())
+          .getReader();
 
-              while (true) {
-                  const { value, done } = await reader.read();
-                  if (done) break;
-                  ctx.subscriber.next({ text: JSON.parse(value).body?.message as string || '-', sent: false, ts: '-' });
-              }
-          });
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          value
+            .trim()
+            .split('\n')
+            .forEach(chunk => ctx.subscriber.next({ text: JSON.parse(chunk).body?.message as string || '-', sent: false, ts: '-' }));
+        }
+      });
   }
 };
 
@@ -54,21 +57,21 @@ interface SubscriptionCtx {
 
 function ChatApp({ room }: ChatAppParams) {
   const [subscriptionId, setSubscriptionId] = useState<string>();
-  const [messageObs, setMessageObs] = useState<Observable<Message>>();
   const [messages, setMessages] = useState<Message[]>([]);
   const [subscriptionCtx, setSubscriptionCtx] = useState<SubscriptionCtx>({ messages, messageRecipient: setMessages });
+  const [message, setMessage] = useState<string>('');
 
   useEffect(() => {
     subscriptionCtx.messages = messages;
     subscriptionCtx.messageRecipient = setMessages;
-  }, [ messages, setMessages ]);
+  }, [messages, setMessages]);
 
   useEffect(() => {
     console.log(`creating room ${room}`);
     fetch(`/room/${room}`, { method: 'POST' })
       .then(res => res.json())
       .then(res => setSubscriptionId(res.channelUuid))
-  }, [ room ]);
+  }, [room]);
 
   useEffect(() => {
     if (subscriptionId) {
@@ -76,11 +79,17 @@ function ChatApp({ room }: ChatAppParams) {
         .subscribe(msg => subscriptionCtx.messageRecipient([...subscriptionCtx.messages, msg]));
       return () => subscription.unsubscribe();
     }
-  }, [ subscriptionId, subscriptionCtx ])
+  }, [subscriptionId, subscriptionCtx])
 
   if (!subscriptionId) {
     return <p>Loading...</p>;
   }
+
+  const onSubmit: React.FormEventHandler<HTMLFormElement> = (event) => {
+    fetch(`/send/${room}`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message }) });
+    setMessage('');
+    event.preventDefault();
+  };
 
   return <div className="flex flex-col flex-grow w-full max-w-xl bg-white shadow-xl rounded-lg overflow-hidden">
     <div className="flex flex-col flex-grow h-0 p-4 overflow-auto">
@@ -88,7 +97,16 @@ function ChatApp({ room }: ChatAppParams) {
     </div>
 
     <div className="bg-gray-300 p-4">
-      <input className="flex items-center h-10 w-full rounded px-3 text-sm" type="text" placeholder="Type your message…" />
+      <form onSubmit={onSubmit}>
+        <input
+          id="messageInput"
+          className="flex items-center h-10 w-full rounded px-3 text-sm"
+          value={message}
+          onChange={e => setMessage(e.target.value)}
+          type="text"
+          placeholder="Type your message…"
+        />
+      </form>
     </div>
   </div>;
 }
