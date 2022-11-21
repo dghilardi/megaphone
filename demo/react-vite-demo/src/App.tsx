@@ -2,6 +2,7 @@ import React, { Suspense, useEffect, useState } from 'react'
 import { Observable, Subscriber, Subscription } from 'rxjs';
 import reactLogo from './assets/react.svg'
 import { Message } from './components/Message';
+import moment from 'moment';
 
 interface Message {
   text: string,
@@ -38,7 +39,7 @@ const spawnReader = async (channelId: string, ctx: ReaderCtx) => {
             .split('\n')
             .forEach(chunk => {
               const msg = JSON.parse(chunk);
-              ctx.subscriber.next({ text: msg.body?.message as string || '-', sent: msg.body?.sender === channelId, ts: '-' })
+              ctx.subscriber.next({ text: msg.body?.message as string || '-', sent: msg.body?.sender === channelId, ts: moment(msg.timestamp).format('LT') })
             });
         }
       });
