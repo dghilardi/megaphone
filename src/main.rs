@@ -5,7 +5,7 @@ use axum::{BoxError, Router, routing::{get, post}};
 use axum::body::StreamBody;
 use axum::extract::{Json, Path, State};
 use axum::handler::Handler;
-use axum::http::StatusCode;
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use serde_json::json;
 use uuid::Uuid;
@@ -39,7 +39,10 @@ async fn read_handler(
         );
     let body = StreamBody::new(stream);
 
-    body
+    let mut headers = HeaderMap::new();
+    headers.insert(header::CONTENT_TYPE, "application/x-ndjson".parse().unwrap());
+
+    (headers, body)
 }
 
 async fn write_handler(
