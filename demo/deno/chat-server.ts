@@ -1,9 +1,8 @@
-#! /usr/bin/env -S deno run --allow-net
+#! /usr/bin/env -S deno run --allow-net --allow-env
 
 import { Application, Router } from 'https://deno.land/x/oak@v11.1.0/mod.ts';
 
-const megaphoneUrl = 'http://localhost:3000'
-
+const megaphoneUrl = Deno.env.get("MEGAPHONE_URL") || 'http://localhost:3000';
 const port = 3040;
 const app = new Application();
 

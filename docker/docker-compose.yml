@@ -25,6 +25,8 @@ services:
     image: megaphone-chat:latest
     ports:
       - "3040:3040"
+    environment:
+      - MEGAPHONE_URL=http://megaphone:3000
 
   frontend:
     build:
