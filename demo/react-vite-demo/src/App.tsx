@@ -21,7 +21,6 @@ interface ReaderCtx {
 
 const spawnReader = async (channelId: string, ctx: ReaderCtx) => {
   while (!ctx.terminate) {
-    console.log(`reading channel ${channelId}`);
     await fetch(`/read/${channelId}`)
       .then(async (resp) => {
         if (!resp.ok) {
@@ -30,7 +29,7 @@ const spawnReader = async (channelId: string, ctx: ReaderCtx) => {
         const reader = resp.body!
           .pipeThrough(new TextDecoderStream())
           .getReader();
-
+        
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
