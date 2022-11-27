@@ -7,6 +7,7 @@ use tokio::sync::mpsc::error::SendError;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 use uuid::Uuid;
+use crate::core::error::MegaphoneError;
 
 pub struct BufferedChannel<Event> {
     tx: Sender<Event>,
@@ -56,10 +57,13 @@ impl <Event> MegaphoneService<Event> {
         })
     }
 
-    pub async fn write_into_channel(&self, id: Uuid, message: Event) -> Result<(), SendError<Event>> {
+    pub async fn write_into_channel(&self, id: Uuid, message: Event) -> Result<(), MegaphoneError> {
         let Some(channel) = self.buffer.get(&id) else {
-            panic!("handle channel not found");
+            return Err(MegaphoneError::NotFound)
         };
-        channel.tx.send(message).await
+        channel.tx
+            .send(message)
+            .await
+            .map_err(|_| MegaphoneError::InternalError)
     }
 }

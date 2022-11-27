@@ -40,17 +40,29 @@ router.post('/send/:room', async (ctx) => {
   const req = await ctx.request.body({ type: 'json' }).value;
   const timestamp = new Date().toISOString();
 
-  const promises = subscriptions.map(channelUuid => fetch(`${megaphoneUrl}/write/${channelUuid}/new-message`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      sender: req.sender,
-      timestamp,
-      message: req.message,
-    }),
-  }));
+  const unavailableChannels: number[] = [];
+  const promises = subscriptions
+    .map((channelUuid, idx) => fetch(`${megaphoneUrl}/write/${channelUuid}/new-message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sender: req.sender,
+        timestamp,
+        message: req.message,
+      }),
+    }).then(res => {
+      if (res.status == 404) {
+        console.warn(`subscription ${channelUuid} not found`);
+        unavailableChannels.push(idx);
+      }
+    }))
+    ;
 
   await Promise.all(promises);
+  unavailableChannels
+    .sort((a,b) => b - a)
+    .forEach(idx => subscriptions.splice(idx, 1));
+
   ctx.response.body = JSON.stringify({ status: 'ok' });
 });
 

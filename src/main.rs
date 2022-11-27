@@ -7,14 +7,16 @@ use axum::extract::{Json, Path, State};
 use axum::handler::Handler;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use serde_json::json;
+use serde_json::{json, Value};
 use uuid::Uuid;
 use crate::dto::message::EventDto;
 use futures::StreamExt;
+use crate::dto::error::ErrorDto;
 use crate::service::megaphone_service::MegaphoneService;
 
 pub mod service;
 mod dto;
+mod core;
 
 async fn create_handler(
     State(svc): State<Arc<MegaphoneService<EventDto>>>,
@@ -49,11 +51,10 @@ async fn write_handler(
     Path((channel_id, stream_id)): Path<(String, String)>,
     State(svc): State<Arc<MegaphoneService<EventDto>>>,
     Json(body): Json<serde_json::Value>,
-) -> impl IntoResponse {
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ErrorDto>)> {
     let uuid = Uuid::parse_str(&channel_id).unwrap();
-    svc.write_into_channel(uuid, EventDto::new(stream_id, body)).await
-        .expect("asd");
-    (StatusCode::CREATED, Json(json!({ "status": "ok" })))
+    svc.write_into_channel(uuid, EventDto::new(stream_id, body)).await?;
+    Ok((StatusCode::CREATED, Json(json!({ "status": "ok" }))))
 }
 
 #[tokio::main(flavor = "current_thread")]
