@@ -19,9 +19,9 @@ interface ReaderCtx {
   terminate: boolean,
 }
 
-const spawnReader = async (channelId: string, ctx: ReaderCtx) => {
+const spawnReader = async (agentName: string, channelId: string, ctx: ReaderCtx) => {
   while (!ctx.terminate) {
-    await fetch(`/read/${channelId}`)
+    await fetch(`/read/${channelId}`, { headers: { 'megaphone-agent': agentName } })
       .then(async (resp) => {
         if (!resp.ok) {
           throw new Error("HTTP status code: " + resp.status);
@@ -45,10 +45,10 @@ const spawnReader = async (channelId: string, ctx: ReaderCtx) => {
   }
 };
 
-const readerObservable = (channelId: string): Observable<Message> => {
+const readerObservable = (agentName: string, channelId: string): Observable<Message> => {
   return new Observable((subscriber) => {
     const ctx = { terminate: false, subscriber };
-    spawnReader(channelId, ctx);
+    spawnReader(agentName, channelId, ctx);
     return () => { ctx.terminate = true; };
   });
 };
@@ -60,6 +60,7 @@ interface SubscriptionCtx {
 
 function ChatApp({ room }: ChatAppParams) {
   const [subscriptionId, setSubscriptionId] = useState<string>();
+  const [agentName, setAgentName] = useState<string>();
   const [messages, setMessages] = useState<Message[]>([]);
   const [subscriptionCtx, setSubscriptionCtx] = useState<SubscriptionCtx>({ messages, messageRecipient: setMessages });
   const [message, setMessage] = useState<string>('');
@@ -73,16 +74,19 @@ function ChatApp({ room }: ChatAppParams) {
     console.log(`creating room ${room}`);
     fetch(`/room/${room}`, { method: 'POST' })
       .then(res => res.json())
-      .then(res => setSubscriptionId(res.channelUuid))
+      .then(res => {
+        setSubscriptionId(res.channelUuid);
+        setAgentName(res.agentName);
+      })
   }, [room]);
 
   useEffect(() => {
-    if (subscriptionId) {
-      const subscription = readerObservable(subscriptionId)
+    if (subscriptionId && agentName) {
+      const subscription = readerObservable(agentName, subscriptionId)
         .subscribe(msg => subscriptionCtx.messageRecipient([...subscriptionCtx.messages, msg]));
       return () => subscription.unsubscribe();
     }
-  }, [subscriptionId, subscriptionCtx])
+  }, [subscriptionId, agentName, subscriptionCtx])
 
   if (!subscriptionId) {
     return <p>Loading...</p>;

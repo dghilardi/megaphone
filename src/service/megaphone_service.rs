@@ -25,7 +25,15 @@ impl <Event> BufferedChannel<Event> {
 }
 
 pub struct MegaphoneService<MessageData> {
-    buffer: DashMap<Uuid, BufferedChannel<MessageData>>
+    buffer: Arc<DashMap<Uuid, BufferedChannel<MessageData>>>
+}
+
+impl <Evt> Clone for MegaphoneService<Evt> {
+    fn clone(&self) -> Self {
+        Self {
+            buffer: self.buffer.clone(),
+        }
+    }
 }
 
 impl <Event> MegaphoneService<Event> {

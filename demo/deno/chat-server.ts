@@ -11,23 +11,24 @@ const rooms = new Map<string, string[]>();
 const router = new Router();
 
 router.post('/room/:room', async (ctx) => {
-  const channelUuid = await fetch(`${megaphoneUrl}/create`, { method: 'POST' })
+  const { channelId, agentName } = await fetch(`${megaphoneUrl}/create`, { method: 'POST' })
     .then((resp) => {
       if (!resp.ok) {
         throw new Error("HTTP status code: " + resp.status);
       }
-      return resp.text();
+      return resp.json();
     });
 
   const subscriptions = rooms.get(ctx.params.room);
   if (subscriptions) {
-    rooms.set(ctx.params.room, [...subscriptions, channelUuid]);
+    rooms.set(ctx.params.room, [...subscriptions, channelId]);
   } else {
-    rooms.set(ctx.params.room, [channelUuid]);
+    rooms.set(ctx.params.room, [channelId]);
   }
 
   ctx.response.body = JSON.stringify({
-    channelUuid,
+    channelUuid: channelId,
+    agentName
   });
 });
 

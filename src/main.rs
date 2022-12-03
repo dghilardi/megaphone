@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use axum::{BoxError, Router, routing::{get, post}};
 use axum::body::StreamBody;
-use axum::extract::{Json, Path, State};
+use axum::extract::{FromRef, Json, Path, State};
 use axum::handler::Handler;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
@@ -11,6 +11,9 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 use crate::dto::message::EventDto;
 use futures::StreamExt;
+use tokio::sync::RwLock;
+use crate::core::config::{compose_config, MegaphoneConfig};
+use crate::dto::channel::ChannelCreateResDto;
 use crate::dto::error::ErrorDto;
 use crate::service::megaphone_service::MegaphoneService;
 
@@ -19,14 +22,20 @@ mod dto;
 mod core;
 
 async fn create_handler(
-    State(svc): State<Arc<MegaphoneService<EventDto>>>,
-) -> String {
-    svc.create_channel().await
+    State(svc): State<MegaphoneService<EventDto>>,
+    State(cfg): State<Arc<RwLock<MegaphoneConfig>>>,
+) -> impl IntoResponse {
+    let channel_id = svc.create_channel().await;
+    let agent_name = cfg.read().await.agent_name.clone();
+    Json(ChannelCreateResDto {
+        channel_id,
+        agent_name,
+    })
 }
 
 async fn read_handler(
     Path(id): Path<String>,
-    State(svc): State<Arc<MegaphoneService<EventDto>>>,
+    State(svc): State<MegaphoneService<EventDto>>,
 ) -> impl IntoResponse {
     let uuid = Uuid::parse_str(&id).unwrap();
     let stream = svc
@@ -49,7 +58,7 @@ async fn read_handler(
 
 async fn write_handler(
     Path((channel_id, stream_id)): Path<(String, String)>,
-    State(svc): State<Arc<MegaphoneService<EventDto>>>,
+    State(svc): State<MegaphoneService<EventDto>>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ErrorDto>)> {
     let uuid = Uuid::parse_str(&channel_id).unwrap();
@@ -57,9 +66,41 @@ async fn write_handler(
     Ok((StatusCode::CREATED, Json(json!({ "status": "ok" }))))
 }
 
+pub struct MegaphoneState<Evt> {
+    megaphone_cfg: Arc<RwLock<MegaphoneConfig>>,
+    megaphone_svc: MegaphoneService<Evt>,
+}
+
+impl <Evt> Clone for MegaphoneState<Evt> {
+    fn clone(&self) -> Self {
+        Self {
+            megaphone_cfg: self.megaphone_cfg.clone(),
+            megaphone_svc: self.megaphone_svc.clone(),
+        }
+    }
+}
+
+impl <Evt> FromRef<MegaphoneState<Evt>> for MegaphoneService<Evt> {
+    fn from_ref(app_state: &MegaphoneState<Evt>) -> Self {
+        app_state.megaphone_svc.clone()
+    }
+}
+
+impl <Evt> FromRef<MegaphoneState<Evt>> for Arc<RwLock<MegaphoneConfig>> {
+    fn from_ref(app_state: &MegaphoneState<Evt>) -> Self {
+        app_state.megaphone_cfg.clone()
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let service = Arc::new(MegaphoneService::new());
+    let app_config: MegaphoneConfig = compose_config("megaphone", "megaphone")
+        .expect("Error loading configuration");
+
+    let service = MegaphoneState {
+        megaphone_cfg: Arc::new(RwLock::new(app_config)),
+        megaphone_svc: MegaphoneService::new(),
+    };
 
     let app = Router::with_state(service)
 
