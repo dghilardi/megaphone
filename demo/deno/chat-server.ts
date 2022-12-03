@@ -2,16 +2,22 @@
 
 import { Application, Router } from 'https://deno.land/x/oak@v11.1.0/mod.ts';
 
+interface ChannelParams {
+  channelId: string,
+  agentName: string,
+}
+
 const megaphoneUrl = Deno.env.get("MEGAPHONE_URL") || 'http://localhost:3000';
+const megaphoneAgentUrlTemplate = Deno.env.get("MEGAPHONE_AGENT_URL") || 'http://localhost:3000';
 const port = 3040;
 const app = new Application();
 
-const rooms = new Map<string, string[]>();
+const rooms: Record<string, ChannelParams[]> = {};
 
 const router = new Router();
 
 router.post('/room/:room', async (ctx) => {
-  const { channelId, agentName } = await fetch(`${megaphoneUrl}/create`, { method: 'POST' })
+  const { channelId, agentName }: ChannelParams = await fetch(`${megaphoneUrl}/create`, { method: 'POST' })
     .then((resp) => {
       if (!resp.ok) {
         throw new Error("HTTP status code: " + resp.status);
@@ -19,11 +25,11 @@ router.post('/room/:room', async (ctx) => {
       return resp.json();
     });
 
-  const subscriptions = rooms.get(ctx.params.room);
+  const subscriptions = rooms[ctx.params.room];
   if (subscriptions) {
-    rooms.set(ctx.params.room, [...subscriptions, channelId]);
+    rooms[ctx.params.room] = [...subscriptions, { channelId, agentName }];
   } else {
-    rooms.set(ctx.params.room, [channelId]);
+    rooms[ctx.params.room] = [{ channelId, agentName }];
   }
 
   ctx.response.body = JSON.stringify({
@@ -33,7 +39,7 @@ router.post('/room/:room', async (ctx) => {
 });
 
 router.post('/send/:room', async (ctx) => {
-  const subscriptions = rooms.get(ctx.params.room);
+  const subscriptions = rooms[ctx.params.room];
   if (!subscriptions) {
     ctx.response.body = JSON.stringify({ status: 'NOT_FOUND' });
     return;
@@ -43,7 +49,7 @@ router.post('/send/:room', async (ctx) => {
 
   const unavailableChannels: number[] = [];
   const promises = subscriptions
-    .map((channelUuid, idx) => fetch(`${megaphoneUrl}/write/${channelUuid}/new-message`, {
+    .map(({ channelId, agentName }, idx) => fetch(`${megaphoneAgentUrlTemplate.replace('%agentName%', agentName)}/write/${channelId}/new-message`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
