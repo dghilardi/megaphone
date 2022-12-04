@@ -49,18 +49,20 @@ impl<Event> MegaphoneService<Event> {
         uuid.to_string()
     }
 
-    pub async fn read_channel(&self, id: Uuid, timeout: Duration) -> impl futures::stream::Stream<Item=Event> {
+    pub async fn read_channel(&self, id: Uuid, timeout: Duration) -> Result<impl futures::stream::Stream<Item=Event>, MegaphoneError> {
         let deadline = Instant::now() + timeout;
         let Some(channel) = self.buffer.get(&id) else {
-            panic!("handle channel not found");
+            return Err(MegaphoneError::NotFound);
         };
         let Ok(rx_guard) = channel.rx.clone().try_lock_owned() else {
-            panic!("mutex already locked");
+            log::error!("rx mutex already locked");
+            return Err(MegaphoneError::Busy);
         };
         let Ok(ts_guard) = channel.last_read.clone().try_lock_owned() else {
-            panic!("timestamp mutex already locked");
+            log::error!("timestamp mutex already locked");
+            return Err(MegaphoneError::Busy);
         };
-        futures::stream::unfold((rx_guard, ts_guard), move |(mut rx_guard, mut ts_guard)| async move {
+        Ok(futures::stream::unfold((rx_guard, ts_guard), move |(mut rx_guard, mut ts_guard)| async move {
             let next = tokio::time::timeout_at(deadline, rx_guard.recv()).await;
             match next {
                 Ok(Some(msg)) => Some((msg, (rx_guard, ts_guard))),
@@ -69,7 +71,7 @@ impl<Event> MegaphoneService<Event> {
                     None
                 }
             }
-        })
+        }))
     }
 
     pub async fn write_into_channel(&self, id: Uuid, message: Event) -> Result<(), MegaphoneError> {

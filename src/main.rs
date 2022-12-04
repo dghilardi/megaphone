@@ -13,6 +13,7 @@ use crate::dto::message::EventDto;
 use futures::StreamExt;
 use tokio::sync::RwLock;
 use crate::core::config::{compose_config, MegaphoneConfig};
+use crate::core::error::MegaphoneError;
 use crate::dto::channel::ChannelCreateResDto;
 use crate::dto::error::ErrorDto;
 use crate::service::megaphone_service::MegaphoneService;
@@ -36,11 +37,11 @@ async fn create_handler(
 async fn read_handler(
     Path(id): Path<String>,
     State(svc): State<MegaphoneService<EventDto>>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorDto>)> {
     let uuid = Uuid::parse_str(&id).unwrap();
     let stream = svc
         .read_channel(uuid, Duration::from_secs(10))
-        .await
+        .await?
         .map(|evt| serde_json::to_string(&evt)
             .map(|mut s| {
                 s.push('\n');
@@ -53,7 +54,7 @@ async fn read_handler(
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, "application/x-ndjson".parse().unwrap());
 
-    (headers, body)
+    Ok((headers, body))
 }
 
 async fn write_handler(
@@ -103,6 +104,7 @@ fn spawn_buffer_cleaner(svc: MegaphoneService<EventDto>) {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    env_logger::init();
     let app_config: MegaphoneConfig = compose_config("megaphone", "megaphone")
         .expect("Error loading configuration");
 
