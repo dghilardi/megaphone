@@ -529,7 +529,7 @@ checksum = "3dfc802da7b1cf80aefffa0c7b2f77247c8b32206cc83c270b61264f5b360a80"
 
 [[package]]
 name = "megaphone"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "config",
