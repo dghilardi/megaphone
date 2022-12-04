@@ -92,6 +92,15 @@ impl <Evt> FromRef<MegaphoneState<Evt>> for Arc<RwLock<MegaphoneConfig>> {
     }
 }
 
+fn spawn_buffer_cleaner(svc: MegaphoneService<EventDto>) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            svc.drop_expired();
+        }
+    });
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let app_config: MegaphoneConfig = compose_config("megaphone", "megaphone")
@@ -102,6 +111,7 @@ async fn main() {
         megaphone_svc: MegaphoneService::new(),
     };
 
+    spawn_buffer_cleaner(service.megaphone_svc.clone());
     let app = Router::with_state(service)
 
         .route("/create", post(create_handler))
