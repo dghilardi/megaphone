@@ -28,16 +28,18 @@ jobs:
         mkdir builds
     - name: Build Win64
       run: |
-        cargo rustc --bin megaphone --release --target=x86_64-pc-windows-gnu -- -C linker=x86_64-w64-mingw32-gcc
+        cargo build -p megaphone --release --target=x86_64-pc-windows-gnu -- -C linker=x86_64-w64-mingw32-gcc
         mkdir builds/megaphone-win64
         cp target/x86_64-pc-windows-gnu/release/megaphone.exe builds/megaphone-win64
         tar -C builds -czvf dist/megaphone-win64.tar.gz megaphone-win64
     - name: Build Linux
       run: |
-        cargo rustc --bin megaphone --release --target=x86_64-unknown-linux-gnu
+        cargo cargo build --release --target=x86_64-unknown-linux-gnu
         mkdir builds/megaphone-linux
         cp target/x86_64-unknown-linux-gnu/release/megaphone builds/megaphone-linux
+        cp target/x86_64-unknown-linux-gnu/release/megaphone-operator builds/megaphone-operator-linux
         tar -C builds -czvf dist/megaphone-linux.tar.gz megaphone-linux
+        tar -C builds -czvf dist/megaphone-operator-linux.tar.gz megaphone-operator-linux
     - name: Upload release
       uses: softprops/action-gh-release@v1
       with:
@@ -45,6 +47,7 @@ jobs:
         files: |
           dist/megaphone-win64.tar.gz
           dist/megaphone-linux.tar.gz
+          dist/megaphone-operator-linux.tar.gz
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -58,7 +61,7 @@ jobs:
         cd ../operator
         cargo publish
   push_to_registry:
-    name: Push Docker image to Docker Hub
+    name: Push Megaphone image to Docker Hub
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repo
@@ -91,7 +94,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   push_operator_to_registry:
-    name: Push Docker image to Docker Hub
+    name: Push Megaphone operator image to Docker Hub
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repo
