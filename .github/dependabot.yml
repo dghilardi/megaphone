@@ -9,6 +9,10 @@ updates:
     directory: "/megaphone" # Location of package manifests
     schedule:
       interval: "weekly"
+  - package-ecosystem: "cargo" # See documentation for possible values
+    directory: "/operator" # Location of package manifests
+    schedule:
+      interval: "weekly"
   - package-ecosystem: "docker" # See documentation for possible values
     directory: "/docker" # Location of package manifests
     schedule:

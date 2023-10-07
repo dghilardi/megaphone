@@ -55,6 +55,8 @@ jobs:
         cargo login "$CARGO_ACCESS_TOKEN"
         cd megaphone
         cargo publish
+        cd ../operator
+        cargo publish
   push_to_registry:
     name: Push Docker image to Docker Hub
     runs-on: ubuntu-latest
