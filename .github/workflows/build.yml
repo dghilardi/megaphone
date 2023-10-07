@@ -26,12 +26,6 @@ jobs:
         rustup target add x86_64-apple-darwin
         mkdir dist
         mkdir builds
-    - name: Build Win64
-      run: |
-        cargo build -p megaphone --release --target=x86_64-pc-windows-gnu -- -C linker=x86_64-w64-mingw32-gcc
-        mkdir builds/megaphone-win64
-        cp target/x86_64-pc-windows-gnu/release/megaphone.exe builds/megaphone-win64
-        tar -C builds -czvf dist/megaphone-win64.tar.gz megaphone-win64
     - name: Build Linux
       run: |
         cargo cargo build --release --target=x86_64-unknown-linux-gnu
@@ -45,7 +39,6 @@ jobs:
       with:
         # body_path: CHANGELOG.md # TBD
         files: |
-          dist/megaphone-win64.tar.gz
           dist/megaphone-linux.tar.gz
           dist/megaphone-operator-linux.tar.gz
       env:
