@@ -114,11 +114,12 @@ async fn main() {
     };
 
     spawn_buffer_cleaner(service.megaphone_svc.clone());
-    let app = Router::with_state(service)
+    let app = Router::new()
 
         .route("/create", post(create_handler))
         .route("/write/:channel_id/:stream_id", post(write_handler))
-        .route("/read/:id", get(read_handler));
+        .route("/read/:id", get(read_handler))
+        .with_state(service);
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
         .serve(app.into_make_service())
