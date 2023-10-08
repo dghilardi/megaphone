@@ -7,15 +7,15 @@ use axum::extract::{FromRef, Json, Path, State};
 use axum::handler::Handler;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use serde_json::{json, Value};
-use uuid::Uuid;
-use crate::dto::message::EventDto;
 use futures::StreamExt;
+use serde_json::{json, Value};
 use tokio::sync::RwLock;
+use uuid::Uuid;
+
 use crate::core::config::{compose_config, MegaphoneConfig};
-use crate::core::error::MegaphoneError;
 use crate::dto::channel::ChannelCreateResDto;
 use crate::dto::error::ErrorDto;
+use crate::dto::message::EventDto;
 use crate::service::megaphone_service::MegaphoneService;
 
 pub mod service;
