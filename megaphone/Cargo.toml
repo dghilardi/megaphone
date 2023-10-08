@@ -8,7 +8,7 @@ description = "Reverse proxy for long running requests and server streaming"
 keywords = [ "http", "reverse-proxy", "infrastructure", "cloud" ]
 repository = "https://github.com/dghilardi/megaphone"
 license = "MIT"
-readme = "README.md"
+readme = "../README.md"
 
 [dependencies]
 env_logger = "0.10.0"
