@@ -2,13 +2,12 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    /// Any error originating from the `kube-rs` crate
-    #[error("Kubernetes reported error: {source}")]
-    KubeError {
-        #[from]
-        source: kube::Error,
-    },
-    /// Error in user input or Echo resource definition, typically missing fields.
-    #[error("Invalid Echo CRD: {0}")]
-    UserInputError(String),
+    #[error("Failed to create Pod: {0}")]
+    PodCreationFailed(#[source] kube::Error),
+    #[error("MissingObjectKey: {0}")]
+    MissingObjectKey(&'static str),
+    #[error("Finalizer Error: {0}")]
+    // NB: awkward type because finalizer::Error embeds the reconciler error (which is this)
+    // so boxing this error to break cycles
+    FinalizerError(#[source] Box<kube::runtime::finalizer::Error<Error>>),
 }

@@ -6,3 +6,10 @@ metadata:
 spec:
   replicas: 2
   image: dghila/megaphone:0.3.9
+  resources:
+    limits:
+      cpu: 20m
+      memory: 50Mi
+    requests:
+      cpu: 20m
+      memory: 50Mi
