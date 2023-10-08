@@ -1,44 +1,28 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use futures::stream::StreamExt;
 use kube::{Api, Client};
-use kube_derive::CustomResource;
 use kube_runtime::Controller;
-use kube_runtime::controller::Action;
 use kube_runtime::watcher::Config;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
-#[derive(Debug, Error)]
-enum Error {}
+use crate::model::context::ContextData;
+use crate::policy::error::error_policy;
+use crate::policy::reconciliation::reconcile;
+use crate::spec::Megaphone;
 
-/// A custom resource
-#[derive(CustomResource, Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[kube(group = "d71.dev", version = "v1", kind = "Megaphone", namespaced)]
-struct MegaphoneSpec {
-    pub replicas: i32,
-}
-
-/// The reconciler that will be called when either object change
-async fn reconcile(g: Arc<Megaphone>, _ctx: Arc<()>) -> Result<Action, Error> {
-    // .. use api here to reconcile a child ConfigMap with ownerreferences
-    // see configmapgen_controller example for full info
-    Ok(Action::requeue(Duration::from_secs(300)))
-}
-/// an error handler that will be called when the reconciler fails with access to both the
-/// object that caused the failure and the actual error
-fn error_policy(obj: Arc<Megaphone>, _error: &Error, _ctx: Arc<()>) -> Action {
-    Action::requeue(Duration::from_secs(60))
-}
+mod spec;
+mod policy;
+mod model;
 
 #[tokio::main]
 async fn main() {
     let kubernetes_client = Client::try_default().await
         .expect("Expected a valid KUBECONFIG environment variable.");
 
-    let context = Arc::new(()); // bad empty context - put client in here
+    let context = Arc::new(ContextData {
+        client: kubernetes_client.clone(),
+    });
+
     let crd_api = Api::<Megaphone>::all(kubernetes_client.clone());
 
     // The controller comes from the `kube_runtime` crate and manages the reconciliation process.
