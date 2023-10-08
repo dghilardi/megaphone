@@ -11,7 +11,7 @@ COPY megaphone/src /app/src
 
 RUN cargo build --release
 
-FROM debian:bullseye-slim as dist
+FROM debian:bookworm-slim as dist
 
 WORKDIR /app
 COPY --from=build /app/target/release/megaphone /app/megaphone
