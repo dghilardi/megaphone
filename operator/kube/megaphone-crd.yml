@@ -26,4 +26,6 @@ spec:
                 replicas:
                   type: integer
                   format: int32
-              required: ["replicas"]
+                image:
+                  type: string
+              required: ["replicas", "image"]

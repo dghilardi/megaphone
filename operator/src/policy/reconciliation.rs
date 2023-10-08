@@ -47,7 +47,7 @@ pub async fn reconcile(megaphone: Arc<Megaphone>, context: Arc<ContextData>) -> 
             // of `kube::Error` to the `Error` defined in this crate.
             finalizer::add(client.clone(), &name, &namespace).await?;
             // Invoke creation of a Kubernetes built-in resource named deployment with `n` echo service pods.
-            megaphone::deploy(client, &name, megaphone.spec.replicas, &namespace).await?;
+            megaphone::deploy(client, &name, megaphone.spec.replicas, &namespace, &megaphone.spec.image).await?;
             Ok(Action::requeue(Duration::from_secs(10)))
         }
         MegaphoneAction::Delete => {

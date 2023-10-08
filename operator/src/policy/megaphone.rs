@@ -20,6 +20,7 @@ pub async fn deploy(
     name: &str,
     replicas: i32,
     namespace: &str,
+    image: &str,
 ) -> Result<Deployment, Error> {
     let mut labels: BTreeMap<String, String> = BTreeMap::new();
     labels.insert("app".to_owned(), name.to_owned());
@@ -42,7 +43,7 @@ pub async fn deploy(
                 spec: Some(PodSpec {
                     containers: vec![Container {
                         name: name.to_owned(),
-                        image: Some("inanimate/echo-server:latest".to_owned()),
+                        image: Some(String::from(image)),
                         ports: Some(vec![ContainerPort {
                             container_port: 8080,
                             ..ContainerPort::default()
