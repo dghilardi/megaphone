@@ -1,9 +1,10 @@
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
-use k8s_openapi::api::core::v1::{Container, ContainerPort, PodSpec, PodTemplateSpec};
+use k8s_openapi::api::core::v1::{Container, ContainerPort, EnvVar, EnvVarSource, ObjectFieldSelector, PodSpec, PodTemplateSpec, ResourceRequirements};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
 use kube::api::{DeleteParams, ObjectMeta, PostParams};
 use kube::{Api, Client, Error};
 use std::collections::BTreeMap;
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 
 /// Creates a new deployment of `n` pods with the `inanimate/echo-server:latest` docker image inside,
 /// where `n` is the number of `replicas` given.
@@ -45,9 +46,32 @@ pub async fn deploy(
                         name: name.to_owned(),
                         image: Some(String::from(image)),
                         ports: Some(vec![ContainerPort {
-                            container_port: 8080,
+                            container_port: 3000,
                             ..ContainerPort::default()
                         }]),
+                        resources: Some(ResourceRequirements {
+                            limits: Some([
+                                (String::from("cpu"), Quantity(String::from("20m"))),
+                                (String::from("memory"), Quantity(String::from("50Mi"))),
+                            ].into_iter().collect()),
+                            requests: Some([
+                                (String::from("cpu"), Quantity(String::from("20m"))),
+                                (String::from("memory"), Quantity(String::from("50Mi"))),
+                            ].into_iter().collect())
+                        }),
+                        env: Some(vec![
+                            EnvVar {
+                                name: String::from("megaphone_agent_name"),
+                                value: None,
+                                value_from: Some(EnvVarSource {
+                                    field_ref: Some(ObjectFieldSelector {
+                                        api_version: None,
+                                        field_path: String::from("metadata.name"),
+                                    }),
+                                    ..Default::default()
+                                })
+                            }
+                        ]),
                         ..Container::default()
                     }],
                     ..PodSpec::default()
