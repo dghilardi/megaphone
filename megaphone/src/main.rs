@@ -10,7 +10,6 @@ use axum::response::IntoResponse;
 use futures::StreamExt;
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
-use uuid::Uuid;
 
 use crate::core::config::{compose_config, MegaphoneConfig};
 use crate::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateResDto};
@@ -35,12 +34,11 @@ async fn create_handler(
 }
 
 async fn read_handler(
-    Path(id): Path<String>,
+    Path(channel_id): Path<String>,
     State(svc): State<MegaphoneService<EventDto>>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorDto>)> {
-    let uuid = Uuid::parse_str(&id).unwrap();
     let stream = svc
-        .read_channel(uuid, Duration::from_secs(10))
+        .read_channel(channel_id, Duration::from_secs(10))
         .await?
         .map(|evt| serde_json::to_string(&evt)
             .map(|mut s| {
@@ -62,8 +60,7 @@ async fn write_handler(
     State(svc): State<MegaphoneService<EventDto>>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ErrorDto>)> {
-    let uuid = Uuid::parse_str(&channel_id).unwrap();
-    svc.write_into_channel(uuid, EventDto::new(stream_id, body)).await?;
+    svc.write_into_channel(channel_id, EventDto::new(stream_id, body)).await?;
     Ok((StatusCode::CREATED, Json(json!({ "status": "ok" }))))
 }
 

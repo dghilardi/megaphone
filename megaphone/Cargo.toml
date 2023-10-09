@@ -13,13 +13,13 @@ readme = "../README.md"
 [dependencies]
 env_logger = "0.10.0"
 log = "0.4.17"
+rand = "0.8.5"
 
 config = "0.13.2"
 thiserror = "1.0.37"
 tokio = { version = "1.21.2", features = ["rt", "macros"] }
 futures = "0.3.25"
 
-uuid = { version = "1.2.1", features = ["v4"] }
 dashmap = "5.4.0"
 
 axum = "0.6.20"

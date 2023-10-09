@@ -2,10 +2,11 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex;
 use tokio::time::Instant;
-use uuid::Uuid;
 
 use crate::core::error::MegaphoneError;
 
@@ -27,7 +28,7 @@ impl<Event> BufferedChannel<Event> {
 }
 
 pub struct MegaphoneService<MessageData> {
-    buffer: Arc<DashMap<Uuid, BufferedChannel<MessageData>>>,
+    buffer: Arc<DashMap<String, BufferedChannel<MessageData>>>,
 }
 
 impl<Evt> Clone for MegaphoneService<Evt> {
@@ -44,12 +45,17 @@ impl<Event> MegaphoneService<Event> {
     }
 
     pub async fn create_channel(&self) -> String {
-        let uuid = Uuid::new_v4();
-        self.buffer.insert(uuid, BufferedChannel::new());
-        uuid.to_string()
+        let channel_id: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(50)
+            .map(char::from)
+            .collect();
+
+        self.buffer.insert(channel_id.clone(), BufferedChannel::new());
+        channel_id
     }
 
-    pub async fn read_channel(&self, id: Uuid, timeout: Duration) -> Result<impl futures::stream::Stream<Item=Event>, MegaphoneError> {
+    pub async fn read_channel(&self, id: String, timeout: Duration) -> Result<impl futures::stream::Stream<Item=Event>, MegaphoneError> {
         let deadline = Instant::now() + timeout;
         let Some(channel) = self.buffer.get(&id) else {
             return Err(MegaphoneError::NotFound);
@@ -74,7 +80,7 @@ impl<Event> MegaphoneService<Event> {
         }))
     }
 
-    pub async fn write_into_channel(&self, id: Uuid, message: Event) -> Result<(), MegaphoneError> {
+    pub async fn write_into_channel(&self, id: String, message: Event) -> Result<(), MegaphoneError> {
         let Some(channel) = self.buffer.get(&id) else {
             return Err(MegaphoneError::NotFound);
         };
@@ -85,11 +91,7 @@ impl<Event> MegaphoneService<Event> {
     }
 
     pub fn channel_exists(&self, id: &str) -> bool {
-        if let Ok(uuid) = Uuid::parse_str(id) {
-            self.buffer.contains_key(&uuid)
-        } else {
-            false
-        }
+        self.buffer.contains_key(id)
     }
 
     pub fn drop_expired(&self) {
