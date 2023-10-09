@@ -3,10 +3,10 @@ use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::mpsc::error::SendError;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 use uuid::Uuid;
+
 use crate::core::error::MegaphoneError;
 
 pub struct BufferedChannel<Event> {
@@ -82,6 +82,14 @@ impl<Event> MegaphoneService<Event> {
             .send(message)
             .await
             .map_err(|_| MegaphoneError::InternalError)
+    }
+
+    pub fn channel_exists(&self, id: &str) -> bool {
+        if let Ok(uuid) = Uuid::parse_str(id) {
+            self.buffer.contains_key(&uuid)
+        } else {
+            false
+        }
     }
 
     pub fn drop_expired(&self) {

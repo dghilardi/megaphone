@@ -13,7 +13,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::core::config::{compose_config, MegaphoneConfig};
-use crate::dto::channel::ChannelCreateResDto;
+use crate::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateResDto};
 use crate::dto::error::ErrorDto;
 use crate::dto::message::EventDto;
 use crate::service::megaphone_service::MegaphoneService;
@@ -65,6 +65,17 @@ async fn write_handler(
     let uuid = Uuid::parse_str(&channel_id).unwrap();
     svc.write_into_channel(uuid, EventDto::new(stream_id, body)).await?;
     Ok((StatusCode::CREATED, Json(json!({ "status": "ok" }))))
+}
+
+async fn channel_exists_handler(
+    State(svc): State<MegaphoneService<EventDto>>,
+    Json(req): Json<ChanExistsReqDto>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorDto>)> {
+    Ok(Json(ChanExistsResDto {
+        channel_ids: req.channel_ids.into_iter()
+            .map(|id| (id.clone(), svc.channel_exists(&id)))
+            .collect(),
+    }))
 }
 
 pub struct MegaphoneState<Evt> {
@@ -119,6 +130,7 @@ async fn main() {
         .route("/create", post(create_handler))
         .route("/write/:channel_id/:stream_id", post(write_handler))
         .route("/read/:id", get(read_handler))
+        .route("/channelsExists", post(channel_exists_handler))
         .with_state(service);
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
