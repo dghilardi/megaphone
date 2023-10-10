@@ -4,6 +4,8 @@ use thiserror::Error;
 pub enum Error {
     #[error("Failed to create Pod: {0}")]
     PodCreationFailed(#[source] kube::Error),
+    #[error("Failed to delete Pod: {0}")]
+    PodDeletionFailed(#[source] kube::Error),
     #[error("MissingObjectKey: {0}")]
     MissingObjectKey(&'static str),
     #[error("Finalizer Error: {0}")]

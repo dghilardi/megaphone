@@ -10,6 +10,7 @@ use kube::{
         finalizer::{Event as Finalizer, finalizer},
     },
 };
+use kube::api::DeleteParams;
 use serde_json::json;
 use tokio::time::Duration;
 
@@ -55,6 +56,34 @@ fn create_pod(name: &str, namespace: &str, oref: OwnerReference, spec: &Megaphon
 }
 
 pub async fn reconcile(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<Action, Error> {
+    match determine_action(&megaphone) {
+        MegaphoneAction::Create => create(megaphone, ctx).await,
+        MegaphoneAction::Delete => delete(megaphone, ctx).await,
+        // The resource is already in desired state, do nothing and re-check after 300 seconds
+        MegaphoneAction::NoOp => Ok(Action::requeue(Duration::from_secs(300))),
+    }
+}
+
+pub async fn delete(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<Action, Error> {
+    let client = ctx.client.clone();
+
+    let namespace = megaphone
+        .metadata
+        .namespace
+        .as_ref()
+        .ok_or_else(|| Error::MissingObjectKey(".metadata.namespace"))
+        .unwrap();
+
+    if let Some(status) = megaphone.status.as_ref() {
+        let api: Api<Pod> = Api::namespaced(client, namespace);
+        for name in &status.pods {
+            api.delete(name, &DeleteParams::default()).await
+                .map_err(|err| Error::PodDeletionFailed(err))?;
+        }
+    }
+    Ok(Action::requeue(Duration::from_secs(300)))
+}
+pub async fn create(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<Action, Error> {
     let client = &ctx.client;
 
     let namespace = megaphone
@@ -126,4 +155,27 @@ pub async fn reconcile(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Resu
         }
     }).await.map_err(|e| Error::FinalizerError(Box::new(e)))?;
     Ok(Action::requeue(Duration::from_secs(300)))
+}
+
+enum MegaphoneAction {
+    /// Create the subresources, this includes spawning `n` pods with Echo service
+    Create,
+    /// Delete all subresources created in the `Create` phase
+    Delete,
+    /// This `Echo` resource is in desired state and requires no actions to be taken
+    NoOp,
+}
+fn determine_action(megaphone: &Megaphone) -> MegaphoneAction {
+    return if megaphone.meta().deletion_timestamp.is_some() {
+        MegaphoneAction::Delete
+    } else if megaphone
+        .meta()
+        .finalizers
+        .as_ref()
+        .map_or(true, |finalizers| finalizers.is_empty())
+    {
+        MegaphoneAction::Create
+    } else {
+        MegaphoneAction::NoOp
+    };
 }
