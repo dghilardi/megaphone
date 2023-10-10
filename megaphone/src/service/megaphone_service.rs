@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
+use metrics::{histogram, increment_counter};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -10,10 +11,15 @@ use tokio::time::Instant;
 
 use crate::core::error::MegaphoneError;
 
+pub const CHANNEL_CREATED_METRIC_NAME: &str = "channel_created";
+pub const CHANNEL_DISPOSED_METRIC_NAME: &str = "channel_disposed";
+pub const CHANNEL_DURATION_METRIC_NAME: &str = "channel_duration";
+
 pub struct BufferedChannel<Event> {
     tx: Sender<Event>,
     rx: Arc<Mutex<Receiver<Event>>>,
     last_read: Arc<Mutex<SystemTime>>,
+    created_ts: Arc<Mutex<SystemTime>>,
 }
 
 impl<Event> BufferedChannel<Event> {
@@ -23,6 +29,7 @@ impl<Event> BufferedChannel<Event> {
             tx,
             rx: Arc::new(Mutex::new(rx)),
             last_read: Arc::new(Mutex::new(SystemTime::now())),
+            created_ts: Arc::new(Mutex::new(SystemTime::now())),
         }
     }
 }
@@ -50,6 +57,8 @@ impl<Event> MegaphoneService<Event> {
             .take(50)
             .map(char::from)
             .collect();
+
+        increment_counter!(CHANNEL_CREATED_METRIC_NAME);
 
         self.buffer.insert(channel_id.clone(), BufferedChannel::new());
         channel_id
@@ -96,14 +105,25 @@ impl<Event> MegaphoneService<Event> {
 
     pub fn drop_expired(&self) {
         self.buffer
-            .retain(|_, channel|
-                channel.last_read
+            .retain(|_, channel| {
+                let retain_item = channel.last_read
                     .try_lock()
                     .map(|last_read| {
                         let deadline = SystemTime::now() - Duration::from_secs(60);
                         last_read.ge(&deadline)
                     })
-                    .unwrap_or(true)
-            );
+                    .unwrap_or(true);
+
+                if !retain_item {
+                    increment_counter!(CHANNEL_DISPOSED_METRIC_NAME);
+                    if let Ok(created) = channel.created_ts.try_lock() {
+                        if let Ok(duration) = SystemTime::now().duration_since(*created) {
+                            histogram!(CHANNEL_DURATION_METRIC_NAME, duration.as_secs_f64());
+                        }
+                    }
+                }
+
+                retain_item
+            });
     }
 }

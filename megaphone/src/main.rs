@@ -1,3 +1,4 @@
+use std::future::ready;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,6 +9,7 @@ use axum::handler::Handler;
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use futures::StreamExt;
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
 
@@ -15,7 +17,7 @@ use crate::core::config::{compose_config, MegaphoneConfig};
 use crate::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateResDto};
 use crate::dto::error::ErrorDto;
 use crate::dto::message::EventDto;
-use crate::service::megaphone_service::MegaphoneService;
+use crate::service::megaphone_service::{CHANNEL_DURATION_METRIC_NAME, MegaphoneService};
 
 pub mod service;
 mod dto;
@@ -110,6 +112,21 @@ fn spawn_buffer_cleaner(svc: MegaphoneService<EventDto>) {
     });
 }
 
+fn setup_metrics_recorder() -> PrometheusHandle {
+    const EXPONENTIAL_SECONDS: &[f64] = &[
+        80.0, 160.0, 320.0, 640.0, 1280.0, 2560.0, 5120.0, 10240.0, 20480.0,
+    ];
+
+    PrometheusBuilder::new()
+        .set_buckets_for_metric(
+            Matcher::Full(String::from(CHANNEL_DURATION_METRIC_NAME)),
+            EXPONENTIAL_SECONDS,
+        )
+        .unwrap()
+        .install_recorder()
+        .unwrap()
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     env_logger::init();
@@ -122,12 +139,16 @@ async fn main() {
     };
 
     spawn_buffer_cleaner(service.megaphone_svc.clone());
+
+    let recorder_handle = setup_metrics_recorder();
+
     let app = Router::new()
 
         .route("/create", post(create_handler))
         .route("/write/:channel_id/:stream_id", post(write_handler))
         .route("/read/:id", get(read_handler))
         .route("/channelsExists", post(channel_exists_handler))
+        .route("/metrics", get(move || ready(recorder_handle.render())))
         .with_state(service);
 
     axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
