@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY operator/Cargo.toml Cargo.lock /app/
 RUN mkdir src && touch src/lib.rs \
+    && echo "fn main() {}" > src/crdgen.rs \
     && cargo build --release \
     && rm -r src
 
