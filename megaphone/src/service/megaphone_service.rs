@@ -14,6 +14,10 @@ use crate::core::error::MegaphoneError;
 pub const CHANNEL_CREATED_METRIC_NAME: &str = "channel_created";
 pub const CHANNEL_DISPOSED_METRIC_NAME: &str = "channel_disposed";
 pub const CHANNEL_DURATION_METRIC_NAME: &str = "channel_duration";
+pub const MESSAGES_RECEIVED_METRIC_NAME: &str = "messages_received";
+pub const MESSAGES_SENT_METRIC_NAME: &str = "messages_read";
+pub const MESSAGES_UNROUTABLE_METRIC_NAME: &str = "messages_unroutable";
+pub const MESSAGES_LOST_METRIC_NAME: &str = "messages_lost";
 
 pub struct BufferedChannel<Event> {
     tx: Sender<Event>,
@@ -80,7 +84,10 @@ impl<Event> MegaphoneService<Event> {
         Ok(futures::stream::unfold((rx_guard, ts_guard), move |(mut rx_guard, mut ts_guard)| async move {
             let next = tokio::time::timeout_at(deadline, rx_guard.recv()).await;
             match next {
-                Ok(Some(msg)) => Some((msg, (rx_guard, ts_guard))),
+                Ok(Some(msg)) => {
+                    increment_counter!(MESSAGES_SENT_METRIC_NAME);
+                    Some((msg, (rx_guard, ts_guard)))
+                },
                 Ok(None) | Err(_) => {
                     *ts_guard = SystemTime::now();
                     None
@@ -91,8 +98,10 @@ impl<Event> MegaphoneService<Event> {
 
     pub async fn write_into_channel(&self, id: String, message: Event) -> Result<(), MegaphoneError> {
         let Some(channel) = self.buffer.get(&id) else {
+            increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
             return Err(MegaphoneError::NotFound);
         };
+        increment_counter!(MESSAGES_RECEIVED_METRIC_NAME);
         channel.tx
             .send(message)
             .await
@@ -120,6 +129,16 @@ impl<Event> MegaphoneService<Event> {
                         if let Ok(duration) = SystemTime::now().duration_since(*created) {
                             histogram!(CHANNEL_DURATION_METRIC_NAME, duration.as_secs_f64());
                         }
+                    } else {
+                        log::warn!("Could not lock created timestamp during channel dispose");
+                    }
+
+                    if let Ok(mut stream) = channel.rx.try_lock() {
+                        while let Ok(msg) = stream.try_recv() {
+                            increment_counter!(MESSAGES_LOST_METRIC_NAME);
+                        }
+                    } else {
+                        log::warn!("Could not lock receiver during channel dispose");
                     }
                 }
 
