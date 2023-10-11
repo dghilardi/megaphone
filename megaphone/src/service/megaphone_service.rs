@@ -11,13 +11,13 @@ use tokio::time::Instant;
 
 use crate::core::error::MegaphoneError;
 
-pub const CHANNEL_CREATED_METRIC_NAME: &str = "channel_created";
-pub const CHANNEL_DISPOSED_METRIC_NAME: &str = "channel_disposed";
-pub const CHANNEL_DURATION_METRIC_NAME: &str = "channel_duration";
-pub const MESSAGES_RECEIVED_METRIC_NAME: &str = "messages_received";
-pub const MESSAGES_SENT_METRIC_NAME: &str = "messages_read";
-pub const MESSAGES_UNROUTABLE_METRIC_NAME: &str = "messages_unroutable";
-pub const MESSAGES_LOST_METRIC_NAME: &str = "messages_lost";
+pub const CHANNEL_CREATED_METRIC_NAME: &str = "megaphone_channel_created";
+pub const CHANNEL_DISPOSED_METRIC_NAME: &str = "megaphone_channel_disposed";
+pub const CHANNEL_DURATION_METRIC_NAME: &str = "megaphone_channel_duration";
+pub const MESSAGES_RECEIVED_METRIC_NAME: &str = "megaphone_messages_received";
+pub const MESSAGES_SENT_METRIC_NAME: &str = "megaphone_messages_read";
+pub const MESSAGES_UNROUTABLE_METRIC_NAME: &str = "megaphone_messages_unroutable";
+pub const MESSAGES_LOST_METRIC_NAME: &str = "megaphone_messages_lost";
 
 pub struct BufferedChannel<Event> {
     tx: Sender<Event>,
