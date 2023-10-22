@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::core::config::VirtualAgentMode;
 
@@ -22,4 +22,18 @@ impl From<VirtualAgentMode> for VirtualAgentModeDto {
             VirtualAgentMode::Replica => Self::Replica,
         }
     }
+}
+
+#[derive(Deserialize)]
+pub struct AddVirtualAgentReqDto {
+    pub name: String,
+    #[serde(flatten)]
+    pub mode: VirtualAgentRegistrationMode,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "mode", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum VirtualAgentRegistrationMode {
+    Master,
+    Replica { address: String },
 }

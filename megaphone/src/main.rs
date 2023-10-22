@@ -52,7 +52,8 @@ async fn main() {
     let app_config: MegaphoneConfig = compose_config("megaphone", "megaphone")
         .expect("Error loading configuration");
 
-    let service = MegaphoneState::build(app_config);
+    let service = MegaphoneState::build(app_config)
+        .expect("Error building megaphone state");
 
     spawn_buffer_cleaner(FromRef::from_ref(&service));
 
@@ -65,6 +66,7 @@ async fn main() {
         .route("/read/:id", get(http::channel::read_handler))
         .route("/channelsExists", post(http::channel::channel_exists_handler))
         .route("/vagent/list", get(http::vagent::list_virtual_agents))
+        .route("/vagent/add", post(http::vagent::add_virtual_agent))
         .route("/metrics", get(move || ready(recorder_handle.render())))
         .with_state(service);
 

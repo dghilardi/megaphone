@@ -2,6 +2,7 @@ use std::sync::Arc;
 use axum::extract::FromRef;
 use tokio::sync::RwLock;
 use crate::core::config::MegaphoneConfig;
+use crate::core::error::MegaphoneError;
 use crate::service::agents_manager_service::AgentsManagerService;
 use crate::service::megaphone_service::MegaphoneService;
 
@@ -12,14 +13,14 @@ pub struct MegaphoneState<Evt> {
 }
 
 impl <Evt> MegaphoneState<Evt> {
-    pub fn build(app_config: MegaphoneConfig) -> Self {
-        let agents_manager = AgentsManagerService::new(app_config.agent.clone());
+    pub fn build(app_config: MegaphoneConfig) -> Result<Self, MegaphoneError> {
+        let agents_manager = AgentsManagerService::new(app_config.agent.clone())?;
 
-        MegaphoneState {
+        Ok(MegaphoneState {
             megaphone_cfg: Arc::new(RwLock::new(app_config)),
             megaphone_svc: MegaphoneService::new(agents_manager.clone()),
             agents_manager_svc: agents_manager,
-        }
+        })
     }
 }
 

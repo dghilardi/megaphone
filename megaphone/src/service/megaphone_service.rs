@@ -71,7 +71,7 @@ impl<Event> MegaphoneService<Event> {
 
         increment_counter!(CHANNEL_CREATED_METRIC_NAME);
 
-        let full_id = format!("{vagent_id}:{channel_id}");
+        let full_id = format!("{vagent_id}.{channel_id}");
 
         self.buffer.insert(full_id.clone(), BufferedChannel::new());
         (vagent_id, full_id)

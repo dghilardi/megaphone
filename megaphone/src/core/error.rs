@@ -8,4 +8,6 @@ pub enum MegaphoneError {
     Busy,
     #[error("Internal Error")]
     InternalError,
+    #[error("Bad Request - {0}")]
+    BadRequest(String),
 }
