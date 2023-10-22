@@ -25,6 +25,12 @@ pub fn compose_config<'de, CFG: Deserialize<'de>>(external_path: &str, env_prefi
 pub struct MegaphoneConfig {
     #[serde(deserialize_with = "string_or_struct")]
     pub agent: AgentConfig,
+    #[serde(default = "default_poll_duration")]
+    pub poll_duration_millis: u64,
+}
+
+fn default_poll_duration() -> u64 {
+    20_000
 }
 
 #[derive(Clone, Deserialize)]

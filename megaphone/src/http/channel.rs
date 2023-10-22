@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{BoxError, Json};
@@ -7,6 +8,8 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use futures::StreamExt;
 use serde_json::{json, Value};
+use tokio::sync::RwLock;
+use crate::core::config::MegaphoneConfig;
 
 use crate::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateResDto};
 use crate::dto::error::ErrorDto;
@@ -25,10 +28,15 @@ pub async fn create_handler(
 
 pub async fn read_handler(
     Path(channel_id): Path<String>,
+    State(conf): State<Arc<RwLock<MegaphoneConfig>>>,
     State(svc): State<MegaphoneService<EventDto>>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorDto>)> {
+    let duration = {
+        let conf_read = conf.read().await;
+        conf_read.poll_duration_millis
+    };
     let stream = svc
-        .read_channel(channel_id, Duration::from_secs(10))
+        .read_channel(channel_id, Duration::from_millis(duration))
         .await?
         .map(|evt| serde_json::to_string(&evt)
             .map(|mut s| {
