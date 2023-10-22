@@ -14,7 +14,8 @@ pub async fn list_virtual_agents(
     let agents = svc.list_agents()
         .map(|entry| VirtualAgentItemDto {
             name: entry.key().to_string(),
-            mode: VirtualAgentModeDto::from(entry.value().clone()),
+            since: entry.value().change_ts().into(),
+            mode: VirtualAgentModeDto::from(entry.value().status()),
         })
         .collect::<Vec<_>>();
     Json(agents)

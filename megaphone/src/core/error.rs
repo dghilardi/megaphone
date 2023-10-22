@@ -6,8 +6,8 @@ pub enum MegaphoneError {
     NotFound,
     #[error("Resource is busy")]
     Busy,
-    #[error("Internal Error")]
-    InternalError,
+    #[error("Internal Error - {0}")]
+    InternalError(String),
     #[error("Bad Request - {0}")]
     BadRequest(String),
 }

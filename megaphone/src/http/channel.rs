@@ -18,12 +18,12 @@ use crate::service::megaphone_service::MegaphoneService;
 
 pub async fn create_handler(
     State(svc): State<MegaphoneService<EventDto>>,
-) -> impl IntoResponse {
-    let (agent_name, channel_id) = svc.create_channel().await;
-    Json(ChannelCreateResDto {
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorDto>)> {
+    let (agent_name, channel_id) = svc.create_channel().await?;
+    Ok(Json(ChannelCreateResDto {
         channel_id,
         agent_name,
-    })
+    }))
 }
 
 pub async fn read_handler(

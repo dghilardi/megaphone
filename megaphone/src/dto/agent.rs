@@ -1,10 +1,14 @@
+use std::time::SystemTime;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::core::config::VirtualAgentMode;
+use crate::service::agents_manager_service::VirtualAgentStatus;
 
 #[derive(Serialize)]
 pub struct VirtualAgentItemDto {
     pub name: String,
+    pub since: DateTime<Utc>,
     pub mode: VirtualAgentModeDto,
 }
 
@@ -13,13 +17,15 @@ pub struct VirtualAgentItemDto {
 pub enum VirtualAgentModeDto {
     Master,
     Replica,
+    Piped,
 }
 
-impl From<VirtualAgentMode> for VirtualAgentModeDto {
-    fn from(value: VirtualAgentMode) -> Self {
+impl From<VirtualAgentStatus> for VirtualAgentModeDto {
+    fn from(value: VirtualAgentStatus) -> Self {
         match value {
-            VirtualAgentMode::Master => Self::Master,
-            VirtualAgentMode::Replica => Self::Replica,
+            VirtualAgentStatus::Master => Self::Master,
+            VirtualAgentStatus::Replica => Self::Replica,
+            VirtualAgentStatus::Piped => Self::Piped,
         }
     }
 }

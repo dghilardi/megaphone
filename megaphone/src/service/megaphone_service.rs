@@ -60,8 +60,8 @@ impl<Event> MegaphoneService<Event> {
         Self { agents_manager, buffer: Default::default() }
     }
 
-    pub async fn create_channel(&self) -> (String, String) {
-        let vagent_id = self.agents_manager.random_master_id().to_string();
+    pub async fn create_channel(&self) -> Result<(String, String), MegaphoneError> {
+        let vagent_id = self.agents_manager.random_master_id()?.to_string();
 
         let channel_id: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
@@ -74,7 +74,7 @@ impl<Event> MegaphoneService<Event> {
         let full_id = format!("{vagent_id}.{channel_id}");
 
         self.buffer.insert(full_id.clone(), BufferedChannel::new());
-        (vagent_id, full_id)
+        Ok((vagent_id, full_id))
     }
 
     pub async fn read_channel(&self, id: String, timeout: Duration) -> Result<impl futures::stream::Stream<Item=Event>, MegaphoneError> {
@@ -114,7 +114,7 @@ impl<Event> MegaphoneService<Event> {
         channel.tx
             .send(message)
             .await
-            .map_err(|_| MegaphoneError::InternalError)
+            .map_err(|err| MegaphoneError::InternalError(format!("Error writing channel - {err}")))
     }
 
     pub fn channel_exists(&self, id: &str) -> bool {
