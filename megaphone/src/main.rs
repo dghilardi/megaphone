@@ -18,6 +18,7 @@ use crate::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateResDt
 use crate::dto::error::ErrorDto;
 use crate::dto::message::EventDto;
 use crate::service::megaphone_service::{CHANNEL_DURATION_METRIC_NAME, MegaphoneService};
+use crate::service::agents_manager_service::AgentsManagerService;
 
 pub mod service;
 mod dto;
@@ -25,10 +26,8 @@ mod core;
 
 async fn create_handler(
     State(svc): State<MegaphoneService<EventDto>>,
-    State(cfg): State<Arc<RwLock<MegaphoneConfig>>>,
 ) -> impl IntoResponse {
-    let channel_id = svc.create_channel().await;
-    let agent_name = cfg.read().await.agent_name.clone();
+    let (agent_name, channel_id) = svc.create_channel().await;
     Json(ChannelCreateResDto {
         channel_id,
         agent_name,
@@ -133,9 +132,11 @@ async fn main() {
     let app_config: MegaphoneConfig = compose_config("megaphone", "megaphone")
         .expect("Error loading configuration");
 
+    let agents_manager = AgentsManagerService::new(app_config.agent.clone());
+
     let service = MegaphoneState {
         megaphone_cfg: Arc::new(RwLock::new(app_config)),
-        megaphone_svc: MegaphoneService::new(),
+        megaphone_svc: MegaphoneService::new(agents_manager),
     };
 
     spawn_buffer_cleaner(service.megaphone_svc.clone());

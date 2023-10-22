@@ -10,6 +10,7 @@ use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use crate::core::error::MegaphoneError;
+use crate::service::agents_manager_service::AgentsManagerService;
 
 pub const CHANNEL_CREATED_METRIC_NAME: &str = "megaphone_channel_created";
 pub const CHANNEL_DISPOSED_METRIC_NAME: &str = "megaphone_channel_disposed";
@@ -39,23 +40,29 @@ impl<Event> BufferedChannel<Event> {
 }
 
 pub struct MegaphoneService<MessageData> {
+    agents_manager: AgentsManagerService,
     buffer: Arc<DashMap<String, BufferedChannel<MessageData>>>,
 }
 
 impl<Evt> Clone for MegaphoneService<Evt> {
     fn clone(&self) -> Self {
         Self {
+            agents_manager: self.agents_manager.clone(),
             buffer: self.buffer.clone(),
         }
     }
 }
 
 impl<Event> MegaphoneService<Event> {
-    pub fn new() -> Self {
-        Self { buffer: Default::default() }
+    pub fn new(
+        agents_manager: AgentsManagerService,
+    ) -> Self {
+        Self { agents_manager, buffer: Default::default() }
     }
 
-    pub async fn create_channel(&self) -> String {
+    pub async fn create_channel(&self) -> (String, String) {
+        let vagent_id = self.agents_manager.random_master_id().to_string();
+
         let channel_id: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(50)
@@ -64,8 +71,10 @@ impl<Event> MegaphoneService<Event> {
 
         increment_counter!(CHANNEL_CREATED_METRIC_NAME);
 
-        self.buffer.insert(channel_id.clone(), BufferedChannel::new());
-        channel_id
+        let full_id = format!("{vagent_id}:{channel_id}");
+
+        self.buffer.insert(full_id.clone(), BufferedChannel::new());
+        (vagent_id, full_id)
     }
 
     pub async fn read_channel(&self, id: String, timeout: Duration) -> Result<impl futures::stream::Stream<Item=Event>, MegaphoneError> {
