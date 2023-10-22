@@ -1,6 +1,8 @@
+use std::collections::hash_map::RandomState;
 use std::sync::Arc;
 
 use dashmap::DashMap;
+use dashmap::mapref::multiple::RefMulti;
 use rand::seq::IteratorRandom;
 
 use crate::core::config::{AgentConfig, VirtualAgentMode};
@@ -33,5 +35,9 @@ impl AgentsManagerService {
             .map(|entry| entry.key().to_string())
             .choose(&mut rand::thread_rng())
             .expect("Cannot select random agent-id")
+    }
+
+    pub fn list_agents(&self) -> impl Iterator<Item=RefMulti<String, VirtualAgentMode, RandomState>> {
+        self.virtual_agents.iter()
     }
 }

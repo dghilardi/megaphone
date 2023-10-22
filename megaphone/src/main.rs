@@ -64,6 +64,7 @@ async fn main() {
         .route("/write/:channel_id/:stream_id", post(http::channel::write_handler))
         .route("/read/:id", get(http::channel::read_handler))
         .route("/channelsExists", post(http::channel::channel_exists_handler))
+        .route("/vagent/list", get(http::vagent::list_virtual_agents))
         .route("/metrics", get(move || ready(recorder_handle.render())))
         .with_state(service);
 
