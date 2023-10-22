@@ -28,3 +28,4 @@ serde_yaml = "0.9.18"
 openssl = { version = "0.10.35", features = ["vendored"] }
 schemars = { version = "0.8", features = ["chrono"] }
 thiserror = "1.0"
+hex = "0.4.3"

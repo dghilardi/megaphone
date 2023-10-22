@@ -9,9 +9,12 @@ use serde::{Deserialize, Serialize};
 #[kube(group = "d71.dev", version = "v1", kind = "Megaphone", namespaced)]
 #[kube(status = "MegaphoneStatus")]
 #[kube(scale = r#"{"specReplicasPath":".spec.replicas", "statusReplicasPath":".status.replicas"}"#)]
+#[serde(rename_all = "camelCase")]
 pub struct MegaphoneSpec {
     pub image: String,
     pub replicas: usize,
+    #[schemars(range(min = 1))]
+    pub virtual_agents_per_node: usize,
     pub resources: Option<ResourcesSpec>,
 }
 

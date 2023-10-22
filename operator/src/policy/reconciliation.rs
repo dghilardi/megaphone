@@ -20,39 +20,60 @@ use crate::model::spec::{Megaphone, MegaphoneSpec, MegaphoneStatus};
 
 pub static WORKLOAD_FINALIZER: &str = "megaphone.d71.dev";
 
-fn create_pod(name: &str, namespace: &str, oref: OwnerReference, spec: &MegaphoneSpec) -> Pod {
-    Pod {
+fn build_vagent_id(node_idx: usize, vagent_idx: usize) -> String {
+    let scrambling_key = "MEGAPHONE".as_bytes();
+    let scrambled_id = [].into_iter()
+        .chain((node_idx as u32).to_be_bytes())
+        .chain((vagent_idx as u32).to_be_bytes())
+        .enumerate()
+        .map(|(idx, b)| scrambling_key[idx % scrambling_key.len()] ^ b)
+        .collect::<Vec<_>>();
+
+    hex::encode(&scrambled_id)
+}
+
+fn create_pod(resource_name: &str, idx: usize, namespace: &str, oref: OwnerReference, spec: &MegaphoneSpec) -> (String, Pod) {
+    let env_vars = (0..spec.virtual_agents_per_node)
+        .into_iter()
+        .map(|virtual_agent_idx| EnvVar {
+            name: format!("megaphone_agent.virtual.{}", build_vagent_id(idx, virtual_agent_idx)),
+            value: Some(String::from("MASTER")),
+            value_from: None,
+        })
+        .collect::<Vec<_>>();
+
+    let pod_labels = (0..spec.virtual_agents_per_node)
+        .into_iter()
+        .flat_map(|virtual_agent_idx| [
+            (format!("megaphone-{}-write", build_vagent_id(idx, virtual_agent_idx)), String::from("ON")),
+            (format!("megaphone-{}-read",  build_vagent_id(idx, virtual_agent_idx)), String::from("ON")),
+        ])
+        .chain([(String::from("megaphone-cluster"), String::from(resource_name))])
+        .collect();
+
+    let pod_name = format!("megaphone-pod-{resource_name}-{idx}");
+
+    (pod_name.to_owned(), Pod {
         metadata: ObjectMeta {
-            name: Some(name.to_owned()),
+            name: Some(pod_name.to_owned()),
             namespace: Some(namespace.to_owned()),
             owner_references: Some(vec![oref]),
+            labels: Some(pod_labels),
             ..Default::default()
         },
         spec: Some(PodSpec {
             containers: vec![Container {
-                name: name.to_owned(),
+                name: pod_name.to_owned(),
                 image: Some(String::from(&spec.image)),
                 resources: spec.resources.clone()
                     .map(From::from),
-                env: Some(vec![
-                    EnvVar {
-                        name: String::from("megaphone_agent_name"),
-                        value: None,
-                        value_from: Some(EnvVarSource {
-                            field_ref: Some(ObjectFieldSelector {
-                                api_version: None,
-                                field_path: String::from("metadata.name"),
-                            }),
-                            ..Default::default()
-                        }),
-                    }
-                ]),
+                env: Some(env_vars),
                 ..Default::default()
             }],
             ..Default::default()
         }),
         ..Default::default()
-    }
+    })
 }
 
 pub async fn reconcile(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<Action, Error> {
@@ -113,12 +134,8 @@ pub async fn create(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<
         .len();
     if current_workloads < megaphone.spec.replicas {
         let mut new_pods = Vec::<String>::new();
-        for i in current_workloads..megaphone.spec.replicas {
-            let mut pod_name = String::from("megaphone-pod-");
-            pod_name.push_str(name);
-            pod_name.push_str("-");
-            pod_name.push_str(&i.to_string());
-            let pod = create_pod(&pod_name, &namespace, oref.clone(), &megaphone.spec);
+        for pod_idx in current_workloads..megaphone.spec.replicas {
+            let (pod_name, pod) = create_pod(&name, pod_idx, &namespace, oref.clone(), &megaphone.spec);
             let res = pods
                 .patch(
                     &pod_name,
@@ -127,7 +144,9 @@ pub async fn create(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<
                 )
                 .await
                 .map_err(Error::PodCreationFailed);
+
             println!("{:?}", res);
+
             match res {
                 Ok(_) => new_pods.push(pod_name),
                 Err(e) => println!("Pod Creation Failed {:?}", e),

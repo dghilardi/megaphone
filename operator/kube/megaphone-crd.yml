@@ -51,9 +51,14 @@ spec:
                         type: string
                     type: object
                 type: object
+              virtualAgentsPerNode:
+                format: uint
+                minimum: 1.0
+                type: integer
             required:
             - image
             - replicas
+            - virtualAgentsPerNode
             type: object
           status:
             description: Status object for Workload
