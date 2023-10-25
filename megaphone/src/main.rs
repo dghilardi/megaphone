@@ -52,6 +52,7 @@ async fn main() {
     let app_config: MegaphoneConfig = compose_config("megaphone", "megaphone")
         .expect("Error loading configuration");
 
+    let address = app_config.address.clone();
     let service = MegaphoneState::build(app_config)
         .expect("Error building megaphone state");
 
@@ -70,7 +71,7 @@ async fn main() {
         .route("/metrics", get(move || ready(recorder_handle.render())))
         .with_state(service);
 
-    axum::Server::bind(&"0.0.0.0:3000".parse().unwrap())
+    axum::Server::bind(&address)
         .serve(app.into_make_service())
         .await
         .expect("Error starting server");

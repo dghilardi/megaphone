@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;
+use std::net::SocketAddr;
 use std::str::FromStr;
 
 use config::{Config, ConfigError, Environment, File};
@@ -23,10 +24,16 @@ pub fn compose_config<'de, CFG: Deserialize<'de>>(external_path: &str, env_prefi
 
 #[derive(Deserialize)]
 pub struct MegaphoneConfig {
+    #[serde(default = "default_address")]
+    pub address: SocketAddr,
     #[serde(deserialize_with = "string_or_struct")]
     pub agent: AgentConfig,
     #[serde(default = "default_poll_duration")]
     pub poll_duration_millis: u64,
+}
+
+fn default_address() -> SocketAddr {
+    "0.0.0.0:3000".parse().unwrap()
 }
 
 fn default_poll_duration() -> u64 {
