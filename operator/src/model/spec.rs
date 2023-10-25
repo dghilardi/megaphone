@@ -57,4 +57,6 @@ pub struct ResourceConstraints {
 #[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
 pub struct MegaphoneStatus {
     pub pods: Vec<String>,
+    #[serde(default)]
+    pub services: Vec<String>,
 }

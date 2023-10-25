@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use k8s_openapi::{api::core::v1::{Container, Pod, PodSpec}, apimachinery::pkg::apis::meta::v1::OwnerReference};
-use k8s_openapi::api::core::v1::{EnvVar, EnvVarSource, ObjectFieldSelector};
+use k8s_openapi::api::core::v1::{EnvVar, EnvVarSource, ObjectFieldSelector, Service, ServicePort, ServiceSpec};
 use kube::{
     api::{Api, ObjectMeta, Patch, PatchParams, Resource},
     runtime::{
@@ -33,85 +33,101 @@ fn build_vagent_id(node_idx: usize, vagent_idx: usize) -> String {
     hex::encode(&scrambled_id)
 }
 
-fn create_pod(resource_name: &str, idx: usize, namespace: &str, oref: OwnerReference, spec: &MegaphoneSpec) -> (String, Pod) {
-    let env_vars = (0..spec.virtual_agents_per_node)
+pub struct MegaphonePod {
+    name: String,
+    virtual_agent_ids: Vec<String>,
+    spec: Pod,
+}
+
+fn create_pod(resource_name: &str, idx: usize, namespace: &str, oref: OwnerReference, spec: &MegaphoneSpec) -> MegaphonePod {
+    let virtual_agent_ids = (0..spec.virtual_agents_per_node)
         .into_iter()
-        .map(|virtual_agent_idx| EnvVar {
-            name: format!("megaphone_agent.virtual.{}", build_vagent_id(idx, virtual_agent_idx)),
+        .map(|virtual_agent_idx| build_vagent_id(idx, virtual_agent_idx))
+        .collect::<Vec<_>>();
+
+    let env_vars = virtual_agent_ids.iter()
+        .map(|virtual_agent_id| EnvVar {
+            name: format!("megaphone_agent.virtual.{virtual_agent_id}"),
             value: Some(String::from("MASTER")),
             value_from: None,
         })
         .collect::<Vec<_>>();
 
-    let pod_labels = (0..spec.virtual_agents_per_node)
+    let pod_labels = virtual_agent_ids.iter()
         .into_iter()
-        .flat_map(|virtual_agent_idx| [
-            (format!("megaphone-{}-write", build_vagent_id(idx, virtual_agent_idx)), String::from("ON")),
-            (format!("megaphone-{}-read",  build_vagent_id(idx, virtual_agent_idx)), String::from("ON")),
+        .flat_map(|virtual_agent_id| [
+            (format!("megaphone-{virtual_agent_id}-write"), String::from("ON")),
+            (format!("megaphone-{virtual_agent_id}-read"), String::from("ON")),
         ])
         .chain([(String::from("megaphone-cluster"), String::from(resource_name))])
         .collect();
 
     let pod_name = format!("megaphone-pod-{resource_name}-{idx}");
 
-    (pod_name.to_owned(), Pod {
-        metadata: ObjectMeta {
-            name: Some(pod_name.to_owned()),
-            namespace: Some(namespace.to_owned()),
-            owner_references: Some(vec![oref]),
-            labels: Some(pod_labels),
+    MegaphonePod {
+        name: pod_name.to_owned(),
+        virtual_agent_ids,
+        spec: Pod {
+            metadata: ObjectMeta {
+                name: Some(pod_name.to_owned()),
+                namespace: Some(namespace.to_owned()),
+                owner_references: Some(vec![oref]),
+                labels: Some(pod_labels),
+                ..Default::default()
+            },
+            spec: Some(PodSpec {
+                containers: vec![Container {
+                    name: pod_name.to_owned(),
+                    image: Some(String::from(&spec.image)),
+                    resources: spec.resources.clone()
+                        .map(From::from),
+                    env: Some(env_vars),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
             ..Default::default()
         },
-        spec: Some(PodSpec {
-            containers: vec![Container {
-                name: pod_name.to_owned(),
-                image: Some(String::from(&spec.image)),
-                resources: spec.resources.clone()
-                    .map(From::from),
-                env: Some(env_vars),
+    }
+}
+
+struct MegaphoneService {
+    name: String,
+    spec: Service,
+}
+
+fn create_service(cluster_name: &str, virtual_agent_id: &str, capability: &str, namespace: &str, oref: OwnerReference) -> MegaphoneService {
+    let svc_name = format!("svc-{cluster_name}-{virtual_agent_id}-{capability}");
+    MegaphoneService {
+        name: svc_name.to_string(),
+        spec: Service {
+            metadata: ObjectMeta {
+                name: Some(svc_name.to_owned()),
+                namespace: Some(namespace.to_owned()),
+                owner_references: Some(vec![oref]),
+                labels: Some([
+                    (String::from("svc-megaphone-cluster"), cluster_name.to_owned())
+                ].into_iter().collect()),
                 ..Default::default()
-            }],
-            ..Default::default()
-        }),
-        ..Default::default()
-    })
+            },
+            spec: Some(ServiceSpec {
+                ports: Some(vec![ServicePort {
+                    name: Some(String::from("http")),
+                    port: 3000,
+                    ..Default::default()
+                }]),
+                selector: Some([
+                    (String::from("megaphone-cluster"), cluster_name.to_owned()),
+                    (format!("megaphone-{virtual_agent_id}-{capability}"), String::from("ON")),
+                ].into_iter().collect()),
+                ..Default::default()
+            }),
+            status: None,
+        }
+    }
 }
 
 pub async fn reconcile(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<Action, Error> {
-    match determine_action(&megaphone) {
-        MegaphoneAction::Create => create(megaphone, ctx).await,
-        MegaphoneAction::Delete => delete(megaphone, ctx).await,
-        // The resource is already in desired state, do nothing and re-check after 300 seconds
-        MegaphoneAction::NoOp => Ok(Action::requeue(Duration::from_secs(300))),
-    }
-}
-
-pub async fn delete(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<Action, Error> {
-    let client = ctx.client.clone();
-
-    let namespace = megaphone
-        .metadata
-        .namespace
-        .as_ref()
-        .ok_or_else(|| Error::MissingObjectKey(".metadata.namespace"))
-        .unwrap();
-
-    if let Some(status) = megaphone.status.as_ref() {
-        let api: Api<Pod> = Api::namespaced(client, namespace);
-        for name in &status.pods {
-            let delete_out = api.delete(name, &DeleteParams::default()).await;
-            match delete_out {
-                Ok(_) => {}
-                Err(kube::error::Error::Api(ErrorResponse { reason, .. })) if reason.eq("NotFound") => {
-                    eprintln!("Resource not found - {name}");
-                },
-                Err(err) => return Err(Error::PodDeletionFailed(err)),
-            }
-        }
-    }
-    Ok(Action::requeue(Duration::from_secs(300)))
-}
-pub async fn create(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<Action, Error> {
     let client = &ctx.client;
 
     let namespace = megaphone
@@ -131,6 +147,7 @@ pub async fn create(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<
     let oref = megaphone.controller_owner_ref(&()).unwrap();
 
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
+    let services: Api<Service> = Api::namespaced(client.clone(), namespace);
     let workloads: Api<Megaphone> = Api::namespaced(client.clone(), namespace);
 
     let current_workloads = megaphone
@@ -141,26 +158,45 @@ pub async fn create(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<
         .len();
     if current_workloads < megaphone.spec.replicas {
         let mut new_pods = Vec::<String>::new();
+        let mut new_services = Vec::<String>::new();
         for pod_idx in current_workloads..megaphone.spec.replicas {
-            let (pod_name, pod) = create_pod(&name, pod_idx, &namespace, oref.clone(), &megaphone.spec);
+            let megaphone_pod = create_pod(&name, pod_idx, &namespace, oref.clone(), &megaphone.spec);
+            let megaphone_services = megaphone_pod.virtual_agent_ids.iter()
+                .flat_map(|virtual_agent_id| [
+                    create_service(&name, virtual_agent_id, "read", &namespace, oref.clone()),
+                    create_service(&name, virtual_agent_id, "write", &namespace, oref.clone()),
+                ])
+                .collect::<Vec<_>>();
+
             let res = pods
                 .patch(
-                    &pod_name,
+                    &megaphone_pod.name,
                     &PatchParams::apply("workload-Controller"),
-                    &Patch::Apply(pod.clone()),
+                    &Patch::Apply(megaphone_pod.spec.clone()),
                 )
                 .await
                 .map_err(Error::PodCreationFailed);
 
-            println!("{:?}", res);
-
             match res {
-                Ok(_) => new_pods.push(pod_name),
+                Ok(_) => new_pods.push(megaphone_pod.name),
                 Err(e) => println!("Pod Creation Failed {:?}", e),
+            }
+
+            for megaphone_svc in megaphone_services {
+                let res = services.patch(
+                    &megaphone_svc.name,
+                    &PatchParams::apply("workload-Controller"),
+                    &Patch::Apply(megaphone_svc.spec.clone()),
+                ).await;
+
+                match res {
+                    Ok(_) => new_services.push(megaphone_svc.name),
+                    Err(e) => println!("Service Creation Failed {:?}", e),
+                }
             }
         }
         let update_status = json!({
-            "status": MegaphoneStatus { pods: new_pods }
+            "status": MegaphoneStatus { pods: new_pods, services: new_services }
         });
         let res = workloads
             .patch_status(name, &PatchParams::default(), &Patch::Merge(&update_status))
@@ -191,6 +227,7 @@ enum MegaphoneAction {
     /// This `Echo` resource is in desired state and requires no actions to be taken
     NoOp,
 }
+
 fn determine_action(megaphone: &Megaphone) -> MegaphoneAction {
     return if megaphone.meta().deletion_timestamp.is_some() {
         MegaphoneAction::Delete

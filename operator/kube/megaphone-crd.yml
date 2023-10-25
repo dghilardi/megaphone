@@ -68,6 +68,11 @@ spec:
                 items:
                   type: string
                 type: array
+              services:
+                default: []
+                items:
+                  type: string
+                type: array
             required:
             - pods
             type: object
