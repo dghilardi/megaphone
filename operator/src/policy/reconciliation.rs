@@ -11,6 +11,7 @@ use kube::{
     },
 };
 use kube::api::DeleteParams;
+use kube::error::ErrorResponse;
 use serde_json::json;
 use tokio::time::Duration;
 
@@ -98,8 +99,14 @@ pub async fn delete(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<
     if let Some(status) = megaphone.status.as_ref() {
         let api: Api<Pod> = Api::namespaced(client, namespace);
         for name in &status.pods {
-            api.delete(name, &DeleteParams::default()).await
-                .map_err(|err| Error::PodDeletionFailed(err))?;
+            let delete_out = api.delete(name, &DeleteParams::default()).await;
+            match delete_out {
+                Ok(_) => {}
+                Err(kube::error::Error::Api(ErrorResponse { reason, .. })) if reason.eq("NotFound") => {
+                    eprintln!("Resource not found - {name}");
+                },
+                Err(err) => return Err(Error::PodDeletionFailed(err)),
+            }
         }
     }
     Ok(Action::requeue(Duration::from_secs(300)))
