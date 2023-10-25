@@ -1,6 +1,6 @@
 [package]
 name = "megaphone"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 
 authors = ["Davide Ghilardi <dghila@d71.dev>"]
