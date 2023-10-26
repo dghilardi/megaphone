@@ -18,7 +18,7 @@ path = "src/crdgen.rs"
 [dependencies]
 anyhow = { version= "1.0.70", features = ["default"] }
 tokio = { version = "1.32", features = ["macros", "rt-multi-thread"] }
-kube = { version = "0.86", features = ["runtime", "derive"] }
+kube = { version = "0.86", features = ["runtime", "derive", "ws"] }
 k8s-openapi = { version = "0.20", default-features = true, features = ["v1_22"] }
 rustls = "0.21.0"
 futures = "0.3"
