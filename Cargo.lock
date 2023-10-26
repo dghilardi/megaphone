@@ -1204,6 +1204,7 @@ dependencies = [
  "hex",
  "k8s-openapi",
  "kube",
+ "megaphone",
  "openssl",
  "rustls",
  "schemars",

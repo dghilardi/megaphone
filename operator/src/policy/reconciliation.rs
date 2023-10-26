@@ -2,16 +2,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use k8s_openapi::{api::core::v1::{Container, Pod, PodSpec}, apimachinery::pkg::apis::meta::v1::OwnerReference};
-use k8s_openapi::api::core::v1::{EnvVar, EnvVarSource, ObjectFieldSelector, Service, ServicePort, ServiceSpec};
+use k8s_openapi::api::core::v1::{EnvVar, Service, ServicePort, ServiceSpec};
 use kube::{
-    api::{Api, ObjectMeta, Patch, PatchParams, Resource},
+    api::{Api, AttachParams, ObjectMeta, Patch, PatchParams, Resource},
     runtime::{
         controller::Action,
         finalizer::{Event as Finalizer, finalizer},
     },
 };
-use kube::api::DeleteParams;
-use kube::error::ErrorResponse;
 use serde_json::json;
 use tokio::time::Duration;
 
@@ -176,6 +174,8 @@ pub async fn reconcile(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Resu
                 )
                 .await
                 .map_err(Error::PodCreationFailed);
+
+            pods.exec(&megaphone_pod.name, vec!["uptime"], &AttachParams::default().stderr(false));
 
             match res {
                 Ok(_) => new_pods.push(megaphone_pod.name),

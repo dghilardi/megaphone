@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use megaphone::dto::agent::{AddVirtualAgentReqDto, PipeVirtualAgentReqDto};
 
 /// Cli interface to port-plumber
@@ -9,8 +9,16 @@ use megaphone::dto::agent::{AddVirtualAgentReqDto, PipeVirtualAgentReqDto};
 pub struct PluCtlArgs {
     #[arg(short, long, default_value = "/run/megaphone.sock")]
     pub path: PathBuf,
+    #[arg(short, long, default_value = "plain")]
+    pub out_format: OutFormat,
     #[clap(subcommand)]
     pub subcommand: Commands,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum OutFormat {
+    Plain,
+    Json
 }
 
 #[derive(Subcommand, Debug)]
