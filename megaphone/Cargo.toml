@@ -33,3 +33,6 @@ regex = "1.10.2"
 chrono = { version = "0.4.31", features = ["serde"] }
 anyhow = "1.0.75"
 
+
+clap = { version = "4.1.6", features = ["derive"] }
+hyper = "0.14.26"
