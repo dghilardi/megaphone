@@ -1,14 +1,20 @@
+use std::fs;
 use std::future::ready;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use anyhow::Context;
 
-use axum::{Router, routing::{get, post}};
+use axum::{Router, routing::{get, post}, Server};
 use axum::extract::FromRef;
 use axum::handler::Handler;
 use axum::response::IntoResponse;
+use axum::routing::IntoMakeService;
 use futures::StreamExt;
+use hyperlocal::{SocketIncoming, UnixServerExt};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use tokio::sync::RwLock;
+use tokio::try_join;
 
 use crate::core::config::{compose_config, MegaphoneConfig};
 use crate::dto::message::EventDto;
@@ -53,6 +59,7 @@ async fn main() {
         .expect("Error loading configuration");
 
     let address = app_config.address.clone();
+    let mng_socket_path = app_config.mng_socket_path.clone();
     let service = MegaphoneState::build(app_config)
         .expect("Error building megaphone state");
 
@@ -66,13 +73,30 @@ async fn main() {
         .route("/write/:channel_id/:stream_id", post(http::channel::write_handler))
         .route("/read/:id", get(http::channel::read_handler))
         .route("/channelsExists", post(http::channel::channel_exists_handler))
+        .route("/metrics", get(move || ready(recorder_handle.render())))
+        .with_state(service.clone());
+
+    try_join!(
+        axum::Server::bind(&address)
+            .serve(app.into_make_service()),
+        build_server(mng_socket_path, service)
+            .expect("Error building mgmt server")
+    ).expect("Error starting server");
+}
+
+pub fn build_server(path: impl AsRef<Path>, service: MegaphoneState<EventDto>) -> anyhow::Result<Server<SocketIncoming, IntoMakeService<Router>>> {
+    if path.as_ref().exists() {
+        fs::remove_file(path.as_ref())
+            .context("Could not remove old socket!")?;
+    }
+
+    let app = Router::new()
         .route("/vagent/list", get(http::vagent::list_virtual_agents))
         .route("/vagent/add", post(http::vagent::add_virtual_agent))
-        .route("/metrics", get(move || ready(recorder_handle.render())))
         .with_state(service);
 
-    axum::Server::bind(&address)
-        .serve(app.into_make_service())
-        .await
-        .expect("Error starting server");
+    let srv = axum::Server::bind_unix(path)?
+        .serve(app.into_make_service());
+
+    Ok(srv)
 }

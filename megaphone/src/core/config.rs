@@ -3,6 +3,7 @@ use std::convert::Infallible;
 use std::fmt;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use config::{Config, ConfigError, Environment, File};
@@ -26,6 +27,8 @@ pub fn compose_config<'de, CFG: Deserialize<'de>>(external_path: &str, env_prefi
 pub struct MegaphoneConfig {
     #[serde(default = "default_address")]
     pub address: SocketAddr,
+    #[serde(default = "default_mng_socket_path")]
+    pub mng_socket_path: PathBuf,
     #[serde(deserialize_with = "string_or_struct")]
     pub agent: AgentConfig,
     #[serde(default = "default_poll_duration")]
@@ -34,6 +37,10 @@ pub struct MegaphoneConfig {
 
 fn default_address() -> SocketAddr {
     "0.0.0.0:3000".parse().unwrap()
+}
+
+fn default_mng_socket_path() -> PathBuf {
+    PathBuf::from("/run/megaphone.sock")
 }
 
 fn default_poll_duration() -> u64 {

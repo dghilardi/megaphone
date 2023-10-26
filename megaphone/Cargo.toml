@@ -23,6 +23,7 @@ futures = "0.3.25"
 dashmap = "5.4.0"
 
 axum = "0.6.20"
+hyperlocal = "0.8.0"
 metrics = "0.21.1"
 metrics-exporter-prometheus = "0.12.1"
 serde = { version = "1.0.147", features = ["derive"] }
@@ -30,3 +31,5 @@ serde_json = "1.0.87"
 lazy_static = "1.4.0"
 regex = "1.10.2"
 chrono = { version = "0.4.31", features = ["serde"] }
+anyhow = "1.0.75"
+
