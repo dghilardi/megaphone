@@ -1,18 +1,18 @@
-use std::time::SystemTime;
+use std::net::SocketAddr;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::core::config::VirtualAgentMode;
 use crate::service::agents_manager_service::VirtualAgentStatus;
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct VirtualAgentItemDto {
     pub name: String,
     pub since: DateTime<Utc>,
     pub mode: VirtualAgentModeDto,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum VirtualAgentModeDto {
     Master,
@@ -30,16 +30,32 @@ impl From<VirtualAgentStatus> for VirtualAgentModeDto {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct AddVirtualAgentReqDto {
     pub name: String,
-    #[serde(flatten)]
-    pub mode: VirtualAgentRegistrationMode,
 }
 
-#[derive(Deserialize)]
-#[serde(tag = "mode", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum VirtualAgentRegistrationMode {
-    Master,
-    Replica { address: String },
+#[derive(Serialize, Deserialize)]
+pub struct PipeVirtualAgentReqDto {
+    pub name: String,
+    pub target: SocketAddr,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct BasicOutcomeDto {
+    pub status: OutcomeStatus,
+}
+
+impl BasicOutcomeDto {
+    pub fn ok() -> Self {
+        Self {
+            status: OutcomeStatus::Ok,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all="SCREAMING_SNAKE_CASE")]
+pub enum OutcomeStatus {
+    Ok,
 }

@@ -1,10 +1,9 @@
 use std::fs;
 use std::future::ready;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
-use anyhow::Context;
 
+use anyhow::Context;
 use axum::{Router, routing::{get, post}, Server};
 use axum::extract::FromRef;
 use axum::handler::Handler;
@@ -13,12 +12,10 @@ use axum::routing::IntoMakeService;
 use futures::StreamExt;
 use hyperlocal::{SocketIncoming, UnixServerExt};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
-use tokio::sync::RwLock;
 use tokio::try_join;
 
 use crate::core::config::{compose_config, MegaphoneConfig};
 use crate::dto::message::EventDto;
-use crate::service::agents_manager_service::AgentsManagerService;
 use crate::service::megaphone_service::{CHANNEL_DURATION_METRIC_NAME, MegaphoneService};
 use crate::state::MegaphoneState;
 
@@ -93,6 +90,7 @@ pub fn build_server(path: impl AsRef<Path>, service: MegaphoneState<EventDto>) -
     let app = Router::new()
         .route("/vagent/list", get(http::vagent::list_virtual_agents))
         .route("/vagent/add", post(http::vagent::add_virtual_agent))
+        .route("/vagent/pipe", post(http::vagent::pipe_virtual_agent))
         .with_state(service);
 
     let srv = axum::Server::bind_unix(path)?
