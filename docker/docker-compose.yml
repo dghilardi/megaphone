@@ -15,6 +15,7 @@ services:
       interval: 1s
     environment:
       - RUST_LOG=debug
+      - megaphone_agent=dockerized
     ports:
      - "3000:3000"
   
