@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -12,6 +13,7 @@ use kube::{
 };
 use serde_json::json;
 use tokio::time::Duration;
+use megaphone::dto::agent::{VirtualAgentItemDto, VirtualAgentModeDto};
 
 use crate::model::context::ContextData;
 use crate::model::error::Error;
@@ -60,7 +62,7 @@ fn create_pod(resource_name: &str, idx: usize, namespace: &str, oref: OwnerRefer
         ])
         .chain([
             (String::from("megaphone-cluster"), String::from(resource_name)),
-            (String::from("accepts-new-channels"), String::from("NO")),
+            (String::from("accepts-new-channels"), String::from("OFF")),
         ])
         .collect();
 
@@ -129,6 +131,24 @@ fn create_service(cluster_name: &str, virtual_agent_id: &str, capability: &str, 
     }
 }
 
+fn compute_pod_labels(cluster_name: &str, vitual_agents: &[VirtualAgentItemDto]) -> HashMap<String, String> {
+    let has_ready_masters = vitual_agents.iter()
+        .find(|agent| matches!(agent.mode, VirtualAgentModeDto::Master) && !agent.warming_up)
+        .is_some();
+
+    vitual_agents.iter()
+        .into_iter()
+        .flat_map(|virtual_agent| [
+            (format!("megaphone-{}-write", virtual_agent.name), if matches!(virtual_agent.mode, VirtualAgentModeDto::Master | VirtualAgentModeDto::Piped) { String::from("ON") } else { String::from("OFF") }),
+            (format!("megaphone-{}-read", virtual_agent.name), if matches!(virtual_agent.mode, VirtualAgentModeDto::Master | VirtualAgentModeDto::Replica) { String::from("ON") } else { String::from("OFF") }),
+        ])
+        .chain([
+            (String::from("megaphone-cluster"), String::from(cluster_name)),
+            (String::from("accepts-new-channels"), if has_ready_masters { String::from("ON") } else { String::from("OFF") }),
+        ])
+        .collect()
+}
+
 pub async fn reconcile(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Result<Action, Error> {
     let client = &ctx.client;
 
@@ -194,9 +214,12 @@ pub async fn reconcile(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Resu
             }
         };
 
-        for agent in agents {
-            println!("agent: {}", agent.name);
-        }
+        let update_labels = json!({
+            ".spec.metadata.labels": compute_pod_labels(&name, &agents),
+        });
+        pods
+            .patch_status(&megaphone_pod.name, &PatchParams::default(), &Patch::Merge(&update_labels))
+            .await;
 
         for megaphone_svc in megaphone_services {
             let res = services.patch(
