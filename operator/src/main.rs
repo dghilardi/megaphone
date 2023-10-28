@@ -17,6 +17,7 @@ use crate::policy::reconciliation::reconcile;
 mod model;
 
 mod policy;
+mod service;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

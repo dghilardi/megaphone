@@ -4,7 +4,7 @@ use anyhow::Result;
 use k8s_openapi::{api::core::v1::{Container, Pod, PodSpec}, apimachinery::pkg::apis::meta::v1::OwnerReference};
 use k8s_openapi::api::core::v1::{EnvVar, Service, ServicePort, ServiceSpec};
 use kube::{
-    api::{Api, AttachParams, ObjectMeta, Patch, PatchParams, Resource},
+    api::{Api, ObjectMeta, Patch, PatchParams, Resource},
     runtime::{
         controller::Action,
         finalizer::{Event as Finalizer, finalizer},
@@ -16,6 +16,7 @@ use tokio::time::Duration;
 use crate::model::context::ContextData;
 use crate::model::error::Error;
 use crate::model::spec::{Megaphone, MegaphoneSpec, MegaphoneStatus};
+use crate::service::megactl_svc::MegactlService;
 
 pub static WORKLOAD_FINALIZER: &str = "megaphone.d71.dev";
 
@@ -57,7 +58,10 @@ fn create_pod(resource_name: &str, idx: usize, namespace: &str, oref: OwnerRefer
             (format!("megaphone-{virtual_agent_id}-write"), String::from("ON")),
             (format!("megaphone-{virtual_agent_id}-read"), String::from("ON")),
         ])
-        .chain([(String::from("megaphone-cluster"), String::from(resource_name))])
+        .chain([
+            (String::from("megaphone-cluster"), String::from(resource_name)),
+            (String::from("accepts-new-channels"), String::from("NO")),
+        ])
         .collect();
 
     let pod_name = format!("megaphone-pod-{resource_name}-{idx}");
@@ -121,7 +125,7 @@ fn create_service(cluster_name: &str, virtual_agent_id: &str, capability: &str, 
                 ..Default::default()
             }),
             status: None,
-        }
+        },
     }
 }
 
@@ -148,63 +152,74 @@ pub async fn reconcile(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Resu
     let services: Api<Service> = Api::namespaced(client.clone(), namespace);
     let workloads: Api<Megaphone> = Api::namespaced(client.clone(), namespace);
 
+    let megactl = MegactlService::new(pods.clone());
+
     let current_workloads = megaphone
         .status
         .clone()
         .unwrap_or_else(|| MegaphoneStatus::default())
         .pods
         .len();
-    if current_workloads < megaphone.spec.replicas {
-        let mut new_pods = Vec::<String>::new();
-        let mut new_services = Vec::<String>::new();
-        for pod_idx in current_workloads..megaphone.spec.replicas {
-            let megaphone_pod = create_pod(&name, pod_idx, &namespace, oref.clone(), &megaphone.spec);
-            let megaphone_services = megaphone_pod.virtual_agent_ids.iter()
-                .flat_map(|virtual_agent_id| [
-                    create_service(&name, virtual_agent_id, "read", &namespace, oref.clone()),
-                    create_service(&name, virtual_agent_id, "write", &namespace, oref.clone()),
-                ])
-                .collect::<Vec<_>>();
 
-            let res = pods
-                .patch(
-                    &megaphone_pod.name,
-                    &PatchParams::apply("workload-Controller"),
-                    &Patch::Apply(megaphone_pod.spec.clone()),
-                )
-                .await
-                .map_err(Error::PodCreationFailed);
+    let mut new_pods = Vec::<String>::new();
+    let mut new_services = Vec::<String>::new();
+    for pod_idx in 0..megaphone.spec.replicas {
+        let megaphone_pod = create_pod(&name, pod_idx, &namespace, oref.clone(), &megaphone.spec);
+        let megaphone_services = megaphone_pod.virtual_agent_ids.iter()
+            .flat_map(|virtual_agent_id| [
+                create_service(&name, virtual_agent_id, "read", &namespace, oref.clone()),
+                create_service(&name, virtual_agent_id, "write", &namespace, oref.clone()),
+            ])
+            .collect::<Vec<_>>();
 
-            pods.exec(&megaphone_pod.name, vec!["uptime"], &AttachParams::default().stderr(false));
+        let res = pods
+            .patch(
+                &megaphone_pod.name,
+                &PatchParams::apply("workload-Controller"),
+                &Patch::Apply(megaphone_pod.spec.clone()),
+            )
+            .await
+            .map_err(Error::PodCreationFailed);
+
+        match res {
+            Ok(_) => new_pods.push(megaphone_pod.name.clone()),
+            Err(e) => println!("Pod Creation Failed {:?}", e),
+        }
+
+        let agents = match megactl.list_agents(&megaphone_pod.name).await {
+            Ok(agents) => agents,
+            Err(err) => {
+                eprintln!("Could not find agents info - {err}");
+                continue;
+            }
+        };
+
+        for agent in agents {
+            println!("agent: {}", agent.name);
+        }
+
+        for megaphone_svc in megaphone_services {
+            let res = services.patch(
+                &megaphone_svc.name,
+                &PatchParams::apply("workload-Controller"),
+                &Patch::Apply(megaphone_svc.spec.clone()),
+            ).await;
 
             match res {
-                Ok(_) => new_pods.push(megaphone_pod.name),
-                Err(e) => println!("Pod Creation Failed {:?}", e),
-            }
-
-            for megaphone_svc in megaphone_services {
-                let res = services.patch(
-                    &megaphone_svc.name,
-                    &PatchParams::apply("workload-Controller"),
-                    &Patch::Apply(megaphone_svc.spec.clone()),
-                ).await;
-
-                match res {
-                    Ok(_) => new_services.push(megaphone_svc.name),
-                    Err(e) => println!("Service Creation Failed {:?}", e),
-                }
+                Ok(_) => new_services.push(megaphone_svc.name),
+                Err(e) => println!("Service Creation Failed {:?}", e),
             }
         }
-        let update_status = json!({
+    }
+    let update_status = json!({
             "status": MegaphoneStatus { pods: new_pods, services: new_services }
         });
-        let res = workloads
-            .patch_status(name, &PatchParams::default(), &Patch::Merge(&update_status))
-            .await;
+    let res = workloads
+        .patch_status(name, &PatchParams::default(), &Patch::Merge(&update_status))
+        .await;
 
-        if let Err(err) = res {
-            println!("Pod Creation Failed {:?}", err);
-        }
+    if let Err(err) = res {
+        println!("Pod Creation Failed {:?}", err);
     }
 
     finalizer(&workloads, WORKLOAD_FINALIZER, megaphone, |event| async {
