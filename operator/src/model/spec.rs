@@ -55,8 +55,21 @@ pub struct ResourceConstraints {
 
 /// Status object for Workload
 #[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct MegaphoneStatus {
     pub pods: Vec<String>,
     #[serde(default)]
     pub services: Vec<String>,
+    #[serde(default)]
+    pub cluster_status: MegaphoneClusterStatus,
+    #[serde(default)]
+    pub upgrade_spec: Option<MegaphoneSpec>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum MegaphoneClusterStatus {
+    #[default]
+    Idle,
+    Upgrade,
 }

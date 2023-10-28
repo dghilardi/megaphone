@@ -1,11 +1,11 @@
 apiVersion: d71.dev/v1
 kind: Megaphone
 metadata:
-  name: megaphone-demooo
+  name: megaphone-demo
   namespace: default
 spec:
   replicas: 2
-  image: dghila/megaphone:0.7.2
+  image: dghila/megaphone:0.7.4
   virtualAgentsPerNode: 3
   resources:
     limits:

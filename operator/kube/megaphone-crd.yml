@@ -64,6 +64,12 @@ spec:
             description: Status object for Workload
             nullable: true
             properties:
+              clusterStatus:
+                default: idle
+                enum:
+                - idle
+                - upgrade
+                type: string
               pods:
                 items:
                   type: string
@@ -73,6 +79,49 @@ spec:
                 items:
                   type: string
                 type: array
+              upgradeSpec:
+                description: Spec object for Workload
+                nullable: true
+                properties:
+                  image:
+                    type: string
+                  replicas:
+                    format: uint
+                    minimum: 0.0
+                    type: integer
+                  resources:
+                    nullable: true
+                    properties:
+                      limits:
+                        nullable: true
+                        properties:
+                          cpu:
+                            nullable: true
+                            type: string
+                          memory:
+                            nullable: true
+                            type: string
+                        type: object
+                      requests:
+                        nullable: true
+                        properties:
+                          cpu:
+                            nullable: true
+                            type: string
+                          memory:
+                            nullable: true
+                            type: string
+                        type: object
+                    type: object
+                  virtualAgentsPerNode:
+                    format: uint
+                    minimum: 1.0
+                    type: integer
+                required:
+                - image
+                - replicas
+                - virtualAgentsPerNode
+                type: object
             required:
             - pods
             type: object

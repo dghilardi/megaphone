@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -11,13 +11,15 @@ use kube::{
         finalizer::{Event as Finalizer, finalizer},
     },
 };
+use kube::core::PartialObjectMetaExt;
 use serde_json::json;
 use tokio::time::Duration;
+
 use megaphone::dto::agent::{VirtualAgentItemDto, VirtualAgentModeDto};
 
 use crate::model::context::ContextData;
 use crate::model::error::Error;
-use crate::model::spec::{Megaphone, MegaphoneSpec, MegaphoneStatus};
+use crate::model::spec::{Megaphone, MegaphoneClusterStatus, MegaphoneSpec, MegaphoneStatus};
 use crate::service::megactl_svc::MegactlService;
 
 pub static WORKLOAD_FINALIZER: &str = "megaphone.d71.dev";
@@ -66,7 +68,7 @@ fn create_pod(resource_name: &str, idx: usize, namespace: &str, oref: OwnerRefer
         ])
         .collect();
 
-    let pod_name = format!("megaphone-pod-{resource_name}-{idx}");
+    let pod_name = format!("mgp-{resource_name}-{idx}");
 
     MegaphonePod {
         name: pod_name.to_owned(),
@@ -100,7 +102,7 @@ struct MegaphoneService {
     spec: Service,
 }
 
-fn create_service(cluster_name: &str, virtual_agent_id: &str, capability: &str, namespace: &str, oref: OwnerReference) -> MegaphoneService {
+fn create_virtual_agent_service(cluster_name: &str, virtual_agent_id: &str, capability: &str, namespace: &str, oref: OwnerReference) -> MegaphoneService {
     let svc_name = format!("svc-{cluster_name}-{virtual_agent_id}-{capability}");
     MegaphoneService {
         name: svc_name.to_string(),
@@ -131,7 +133,38 @@ fn create_service(cluster_name: &str, virtual_agent_id: &str, capability: &str, 
     }
 }
 
-fn compute_pod_labels(cluster_name: &str, vitual_agents: &[VirtualAgentItemDto]) -> HashMap<String, String> {
+fn create_cluster_service(cluster_name: &str, namespace: &str, oref: OwnerReference) -> MegaphoneService {
+    let svc_name = format!("svc-{cluster_name}");
+    MegaphoneService {
+        name: svc_name.to_string(),
+        spec: Service {
+            metadata: ObjectMeta {
+                name: Some(svc_name.to_owned()),
+                namespace: Some(namespace.to_owned()),
+                owner_references: Some(vec![oref]),
+                labels: Some([
+                    (String::from("svc-megaphone-cluster"), cluster_name.to_owned())
+                ].into_iter().collect()),
+                ..Default::default()
+            },
+            spec: Some(ServiceSpec {
+                ports: Some(vec![ServicePort {
+                    name: Some(String::from("http")),
+                    port: 3000,
+                    ..Default::default()
+                }]),
+                selector: Some([
+                    (String::from("megaphone-cluster"), cluster_name.to_owned()),
+                    (String::from("accepts-new-channels"), String::from("ON")),
+                ].into_iter().collect()),
+                ..Default::default()
+            }),
+            status: None,
+        },
+    }
+}
+
+fn compute_pod_labels(cluster_name: &str, vitual_agents: &[VirtualAgentItemDto]) -> BTreeMap<String, String> {
     let has_ready_masters = vitual_agents.iter()
         .find(|agent| matches!(agent.mode, VirtualAgentModeDto::Master) && !agent.warming_up)
         .is_some();
@@ -185,10 +218,13 @@ pub async fn reconcile(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Resu
     let mut new_services = Vec::<String>::new();
     for pod_idx in 0..megaphone.spec.replicas {
         let megaphone_pod = create_pod(&name, pod_idx, &namespace, oref.clone(), &megaphone.spec);
+        let current_pod = pods.get_opt(&megaphone_pod.name).await
+            .map_err(Error::PodCreationFailed)?;
+
         let megaphone_services = megaphone_pod.virtual_agent_ids.iter()
             .flat_map(|virtual_agent_id| [
-                create_service(&name, virtual_agent_id, "read", &namespace, oref.clone()),
-                create_service(&name, virtual_agent_id, "write", &namespace, oref.clone()),
+                create_virtual_agent_service(&name, virtual_agent_id, "read", &namespace, oref.clone()),
+                create_virtual_agent_service(&name, virtual_agent_id, "write", &namespace, oref.clone()),
             ])
             .collect::<Vec<_>>();
 
@@ -214,12 +250,18 @@ pub async fn reconcile(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Resu
             }
         };
 
-        let update_labels = json!({
-            ".spec.metadata.labels": compute_pod_labels(&name, &agents),
-        });
-        pods
-            .patch_status(&megaphone_pod.name, &PatchParams::default(), &Patch::Merge(&update_labels))
+        let update_labels = ObjectMeta {
+            labels: Some(compute_pod_labels(&name, &agents)),
+            ..Default::default()
+        }.into_request_partial::<Pod>();
+        let patch_out = pods
+            .patch_metadata(&megaphone_pod.name, &PatchParams::default(), &Patch::Merge(&update_labels))
             .await;
+
+        match patch_out {
+            Ok(pod) => println!("Pod meta correctly patched - {:?}", pod.metadata),
+            Err(err) => eprintln!("Error applying label patch - {err}"),
+        }
 
         for megaphone_svc in megaphone_services {
             let res = services.patch(
@@ -234,9 +276,27 @@ pub async fn reconcile(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Resu
             }
         }
     }
+    let cluster_svc = create_cluster_service(&name, &namespace, oref.clone());
+    let res = services.patch(
+        &cluster_svc.name,
+        &PatchParams::apply("workload-Controller"),
+        &Patch::Apply(cluster_svc.spec.clone()),
+    ).await;
+
+    match res {
+        Ok(_) => new_services.push(cluster_svc.name),
+        Err(e) => println!("Service Creation Failed {:?}", e),
+    }
+
     let update_status = json!({
-            "status": MegaphoneStatus { pods: new_pods, services: new_services }
+            "status": MegaphoneStatus {
+                pods: new_pods,
+                services: new_services,
+                cluster_status: MegaphoneClusterStatus::Idle,
+                upgrade_spec: None,
+            }
         });
+
     let res = workloads
         .patch_status(name, &PatchParams::default(), &Patch::Merge(&update_status))
         .await;
