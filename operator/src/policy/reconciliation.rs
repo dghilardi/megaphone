@@ -228,18 +228,28 @@ pub async fn reconcile(megaphone: Arc<Megaphone>, ctx: Arc<ContextData>) -> Resu
             ])
             .collect::<Vec<_>>();
 
-        let res = pods
-            .patch(
-                &megaphone_pod.name,
-                &PatchParams::apply("workload-Controller"),
-                &Patch::Apply(megaphone_pod.spec.clone()),
-            )
-            .await
-            .map_err(Error::PodCreationFailed);
+        match current_pod {
+            None => {
+                let res = pods
+                    .patch(
+                        &megaphone_pod.name,
+                        &PatchParams::apply("workload-Controller"),
+                        &Patch::Apply(megaphone_pod.spec.clone()),
+                    )
+                    .await
+                    .map_err(Error::PodCreationFailed);
 
-        match res {
-            Ok(_) => new_pods.push(megaphone_pod.name.clone()),
-            Err(e) => println!("Pod Creation Failed {:?}", e),
+                match res {
+                    Ok(_) => new_pods.push(megaphone_pod.name.clone()),
+                    Err(e) => println!("Pod Creation Failed {:?}", e),
+                }
+            },
+            Some(current_pod_spec) if megaphone.spec.does_spec_change_require_pod_restart(&current_pod_spec) => {
+                todo!("Cluster upgrade is not yet implemented")
+            },
+            Some(current_pod_spec) => {
+                new_pods.push(megaphone_pod.name.clone());
+            }
         }
 
         let agents = match megactl.list_agents(&megaphone_pod.name).await {

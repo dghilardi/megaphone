@@ -1,4 +1,4 @@
-use k8s_openapi::api::core::v1::ResourceRequirements;
+use k8s_openapi::api::core::v1::{Pod, ResourceRequirements};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use kube::CustomResource;
 use schemars::JsonSchema;
@@ -16,6 +16,12 @@ pub struct MegaphoneSpec {
     #[schemars(range(min = 1))]
     pub virtual_agents_per_node: usize,
     pub resources: Option<ResourcesSpec>,
+}
+
+impl MegaphoneSpec {
+    pub fn does_spec_change_require_pod_restart(&self, pod: &Pod) -> bool {
+        false
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]
