@@ -14,6 +14,7 @@ pub async fn list_virtual_agents(
         .map(|entry| VirtualAgentItemDto {
             name: entry.key().to_string(),
             since: entry.value().change_ts().into(),
+            warming_up: entry.value().is_warming_up(),
             mode: VirtualAgentModeDto::from(entry.value().status()),
         })
         .collect::<Vec<_>>();

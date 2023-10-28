@@ -9,6 +9,7 @@ use crate::service::agents_manager_service::VirtualAgentStatus;
 pub struct VirtualAgentItemDto {
     pub name: String,
     pub since: DateTime<Utc>,
+    pub warming_up: bool,
     pub mode: VirtualAgentModeDto,
 }
 

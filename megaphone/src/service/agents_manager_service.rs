@@ -1,6 +1,7 @@
 use std::collections::hash_map::RandomState;
+use std::ops::Add;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
 use dashmap::mapref::multiple::RefMulti;
@@ -9,6 +10,8 @@ use rand::seq::IteratorRandom;
 
 use crate::core::config::{AgentConfig, VirtualAgentMode};
 use crate::core::error::MegaphoneError;
+
+pub const WARMUP_SECS: u64 = 60;
 
 pub struct VirtualAgentProps {
     change_ts: SystemTime,
@@ -37,6 +40,14 @@ impl VirtualAgentProps {
 
     pub fn change_ts(&self) -> SystemTime {
         self.change_ts
+    }
+
+    pub fn is_warming_up(&self) -> bool {
+        match self.status {
+            VirtualAgentStatus::Master => self.change_ts.add(Duration::from_secs(WARMUP_SECS)).gt(&SystemTime::now()),
+            VirtualAgentStatus::Replica => false,
+            VirtualAgentStatus::Piped => false,
+        }
     }
 }
 
@@ -81,9 +92,14 @@ impl AgentsManagerService {
         }
     }
 
-    pub fn random_master_id(&self) -> Result<String, MegaphoneError> {
+    fn active_masters(&self) -> impl Iterator<Item=RefMulti<String, VirtualAgentProps>> {
         self.virtual_agents.iter()
             .filter(|entry| matches!(entry.value().status(), VirtualAgentStatus::Master))
+            .filter(|entry| !entry.value().is_warming_up())
+    }
+
+    pub fn random_master_id(&self) -> Result<String, MegaphoneError> {
+        self.active_masters()
             .map(|entry| entry.key().to_string())
             .choose(&mut rand::thread_rng())
             .ok_or(MegaphoneError::InternalError(String::from("No virtual agent with master status was found")))
