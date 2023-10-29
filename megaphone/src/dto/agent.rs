@@ -25,7 +25,7 @@ impl From<VirtualAgentStatus> for VirtualAgentModeDto {
     fn from(value: VirtualAgentStatus) -> Self {
         match value {
             VirtualAgentStatus::Master => Self::Master,
-            VirtualAgentStatus::Replica => Self::Replica,
+            VirtualAgentStatus::Replica { .. } => Self::Replica,
             VirtualAgentStatus::Piped => Self::Piped,
         }
     }

@@ -9,13 +9,16 @@ use axum::extract::FromRef;
 use axum::handler::Handler;
 use axum::response::IntoResponse;
 use axum::routing::IntoMakeService;
-use futures::StreamExt;
+use futures::{StreamExt, TryFutureExt};
 use hyperlocal::{SocketIncoming, UnixServerExt};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use tokio::try_join;
 
 use crate::core::config::{compose_config, MegaphoneConfig};
 use crate::dto::message::EventDto;
+use crate::grpc::server::megaphone::sync_service_server::SyncServiceServer;
+use crate::grpc::sync_service::MegaphoneSyncService;
+use crate::service::agents_manager_service::AgentsManagerService;
 use crate::service::megaphone_service::{CHANNEL_DURATION_METRIC_NAME, MegaphoneService};
 use crate::state::MegaphoneState;
 
@@ -24,6 +27,7 @@ mod dto;
 mod core;
 mod http;
 mod state;
+mod grpc;
 
 fn spawn_buffer_cleaner(svc: MegaphoneService<EventDto>) {
     tokio::spawn(async move {
@@ -56,6 +60,7 @@ async fn main() {
         .expect("Error loading configuration");
 
     let address = app_config.address.clone();
+    let grpc_address = app_config.grpc_address.clone();
     let mng_socket_path = app_config.mng_socket_path.clone();
     let service = MegaphoneState::build(app_config)
         .expect("Error building megaphone state");
@@ -73,11 +78,19 @@ async fn main() {
         .route("/metrics", get(move || ready(recorder_handle.render())))
         .with_state(service.clone());
 
+    let grpc_server = tonic::transport::Server::builder()
+        .add_service(SyncServiceServer::new(MegaphoneSyncService::new(AgentsManagerService::from_ref(&service), MegaphoneService::from_ref(&service))))
+        .serve(grpc_address);
+
     try_join!(
         axum::Server::bind(&address)
-            .serve(app.into_make_service()),
+            .serve(app.into_make_service())
+            .map_err(anyhow::Error::from),
         build_server(mng_socket_path, service)
             .expect("Error building mgmt server")
+            .map_err(anyhow::Error::from),
+        grpc_server
+            .map_err(anyhow::Error::from),
     ).expect("Error starting server");
 }
 

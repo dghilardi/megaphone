@@ -27,6 +27,8 @@ pub fn compose_config<'de, CFG: Deserialize<'de>>(external_path: &str, env_prefi
 pub struct MegaphoneConfig {
     #[serde(default = "default_address")]
     pub address: SocketAddr,
+    #[serde(default = "default_grpc_address")]
+    pub grpc_address: SocketAddr,
     #[serde(default = "default_mng_socket_path")]
     pub mng_socket_path: PathBuf,
     #[serde(deserialize_with = "string_or_struct")]
@@ -37,6 +39,9 @@ pub struct MegaphoneConfig {
 
 fn default_address() -> SocketAddr {
     "0.0.0.0:3000".parse().unwrap()
+}
+fn default_grpc_address() -> SocketAddr {
+    "0.0.0.0:3001".parse().unwrap()
 }
 
 fn default_mng_socket_path() -> PathBuf {

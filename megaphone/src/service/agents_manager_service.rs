@@ -13,19 +13,17 @@ use crate::core::error::MegaphoneError;
 
 pub const WARMUP_SECS: u64 = 60;
 
+#[derive(Debug)]
 pub struct VirtualAgentProps {
     change_ts: SystemTime,
     status: VirtualAgentStatus,
 }
 
 impl VirtualAgentProps {
-    pub fn new(mode: VirtualAgentMode) -> Self {
+    pub fn new(mode: VirtualAgentStatus) -> Self {
         Self {
             change_ts: SystemTime::now(),
-            status: match mode {
-                VirtualAgentMode::Master => VirtualAgentStatus::Master,
-                VirtualAgentMode::Replica => VirtualAgentStatus::Replica,
-            }
+            status: mode,
         }
     }
 
@@ -45,17 +43,26 @@ impl VirtualAgentProps {
     pub fn is_warming_up(&self) -> bool {
         match self.status {
             VirtualAgentStatus::Master => self.change_ts.add(Duration::from_secs(WARMUP_SECS)).gt(&SystemTime::now()),
-            VirtualAgentStatus::Replica => false,
+            VirtualAgentStatus::Replica { .. } => false,
             VirtualAgentStatus::Piped => false,
         }
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum VirtualAgentStatus {
     Master,
-    Replica,
+    Replica { pipe_sessions_count: usize },
     Piped,
+}
+
+impl From<VirtualAgentMode> for VirtualAgentStatus {
+    fn from(value: VirtualAgentMode) -> Self {
+        match value {
+            VirtualAgentMode::Master => Self::Master,
+            VirtualAgentMode::Replica => Self::Replica { pipe_sessions_count: 0 },
+        }
+    }
 }
 
 pub struct AgentsManagerService {
@@ -74,7 +81,7 @@ impl AgentsManagerService {
     pub fn new(conf: AgentConfig) -> Result<Self, MegaphoneError> {
         let virtual_agents = conf.virtual_agents
             .into_iter()
-            .map(|(k, v)| Self::validate_agent_name(&k).map(|_| (k, VirtualAgentProps::new(v))))
+            .map(|(k, v)| Self::validate_agent_name(&k).map(|_| (k, VirtualAgentProps::new(v.into()))))
             .collect::<Result<_, _>>()?;
         Ok(Self {
             virtual_agents: Arc::new(virtual_agents),
@@ -111,7 +118,30 @@ impl AgentsManagerService {
 
     pub fn add_master(&self, name: &str) -> Result<(), MegaphoneError> {
         Self::validate_agent_name(name)?;
-        self.virtual_agents.insert(String::from(name), VirtualAgentProps::new(VirtualAgentMode::Master));
+        self.virtual_agents.insert(String::from(name), VirtualAgentProps::new(VirtualAgentStatus::Master));
+        Ok(())
+    }
+
+    pub fn open_replica_session(&self, name: &str) -> Result<(), MegaphoneError> {
+        let entry = self.virtual_agents.entry(String::from(name))
+            .or_insert_with(|| VirtualAgentProps::new(VirtualAgentStatus::Replica { pipe_sessions_count: 0 }));
+
+        let VirtualAgentStatus::Replica { mut pipe_sessions_count } = entry.status else {
+            return Err(MegaphoneError::InternalError(format!("{name} agent is already registered but is not a replica")));
+        };
+        pipe_sessions_count += 1;
+
+        Ok(())
+    }
+
+    pub fn close_replica_session(&self, name: &str) -> Result<(), MegaphoneError> {
+        let Some(entry) = self.virtual_agents.get(name) else {
+            return Err(MegaphoneError::InternalError(format!("{name} agent is not registered")));
+        };
+        let VirtualAgentStatus::Replica { mut pipe_sessions_count } = entry.status else {
+            return Err(MegaphoneError::InternalError(format!("{name} agent is already registered but is not a replica")));
+        };
+        pipe_sessions_count -= 1;
         Ok(())
     }
 }

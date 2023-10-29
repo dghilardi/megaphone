@@ -7,10 +7,20 @@ service SyncService {
 
 message SyncRequest {
   oneof sync_event {
-    ChannelCreated channel_created = 1;
-    ChannelDisposed channel_disposed = 2;
-    EventReceived event_received = 3;
+    PipeAgentStart pipe_agent_start = 1;
+    PipeAgentEnd pipe_agent_end = 2;
+    ChannelCreated channel_created = 3;
+    ChannelDisposed channel_disposed = 4;
+    EventReceived event_received = 5;
   }
+}
+
+message PipeAgentStart {
+  string agent_id = 1;
+}
+
+message PipeAgentEnd {
+  string agent_id = 1;
 }
 
 message ChannelCreated {

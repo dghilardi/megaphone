@@ -77,6 +77,12 @@ impl<Event> MegaphoneService<Event> {
         Ok((vagent_id, full_id))
     }
 
+    pub async fn create_channel_with_id(&self, id: &str) -> Result<(), MegaphoneError> {
+        increment_counter!(CHANNEL_CREATED_METRIC_NAME);
+        self.buffer.insert(id.to_string(), BufferedChannel::new());
+        Ok(())
+    }
+
     pub async fn read_channel(&self, id: String, timeout: Duration) -> Result<impl futures::stream::Stream<Item=Event>, MegaphoneError> {
         let deadline = Instant::now() + timeout;
         let Some(channel) = self.buffer.get(&id) else {
@@ -105,8 +111,8 @@ impl<Event> MegaphoneService<Event> {
         }))
     }
 
-    pub async fn write_into_channel(&self, id: String, message: Event) -> Result<(), MegaphoneError> {
-        let Some(channel) = self.buffer.get(&id) else {
+    pub async fn write_into_channel(&self, id: &str, message: Event) -> Result<(), MegaphoneError> {
+        let Some(channel) = self.buffer.get(id) else {
             increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
             return Err(MegaphoneError::NotFound);
         };

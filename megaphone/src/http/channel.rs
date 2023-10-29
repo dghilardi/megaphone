@@ -58,7 +58,7 @@ pub async fn write_handler(
     State(svc): State<MegaphoneService<EventDto>>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ErrorDto>)> {
-    svc.write_into_channel(channel_id, EventDto::new(stream_id, body)).await?;
+    svc.write_into_channel(&channel_id, EventDto::new(stream_id, body)).await?;
     Ok((StatusCode::CREATED, Json(json!({ "status": "ok" }))))
 }
 
