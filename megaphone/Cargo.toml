@@ -36,3 +36,9 @@ anyhow = "1.0.75"
 
 clap = { version = "4.1.6", features = ["derive"] }
 hyper = "0.14.26"
+
+tonic = "0.10"
+prost = "0.12"
+
+[build-dependencies]
+tonic-build = "0.10"

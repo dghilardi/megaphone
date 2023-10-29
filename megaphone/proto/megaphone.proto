@@ -1,0 +1,33 @@
+syntax = "proto3";
+package megaphone;
+
+service SyncService {
+  rpc ForwardEvents(stream SyncRequest) returns (SyncReply);
+}
+
+message SyncRequest {
+  oneof sync_event {
+    ChannelCreated channel_created = 1;
+    ChannelDisposed channel_disposed = 2;
+    EventReceived event_received = 3;
+  }
+}
+
+message ChannelCreated {
+  string channel_id = 1;
+}
+
+message ChannelDisposed {
+  string channel_id = 1;
+}
+
+message EventReceived {
+  string channel_id = 1;
+  string stream_id = 2;
+  string event_id = 3;
+  string json_payload = 4;
+}
+
+message SyncReply {
+  string message = 1;
+}
