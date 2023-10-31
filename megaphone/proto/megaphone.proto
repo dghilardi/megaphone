@@ -1,6 +1,8 @@
 syntax = "proto3";
 package megaphone;
 
+import "google/protobuf/timestamp.proto";
+
 service SyncService {
   rpc ForwardEvents(stream SyncRequest) returns (SyncReply);
 }
@@ -35,7 +37,8 @@ message EventReceived {
   string channel_id = 1;
   string stream_id = 2;
   string event_id = 3;
-  string json_payload = 4;
+  google.protobuf.Timestamp timestamp = 4;
+  string json_payload = 5;
 }
 
 message SyncReply {

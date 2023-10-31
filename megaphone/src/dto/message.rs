@@ -1,6 +1,9 @@
+use std::time::SystemTime;
+use chrono::{DateTime, Utc};
 use rand::{random, Rng};
 use rand::distributions::Alphanumeric;
 use serde::{Serialize, Deserialize};
+use crate::service::megaphone_service::WithTimestamp;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct EventDto {
@@ -8,6 +11,8 @@ pub struct EventDto {
     pub stream_id: String,
     #[serde(rename = "eid")]
     pub event_id: String,
+    #[serde(rename = "ts")]
+    pub timestamp: DateTime<Utc>,
     pub body: serde_json::Value,
 }
 
@@ -23,7 +28,14 @@ impl EventDto {
                 .take(23)
                 .map(char::from)
                 .collect(),
+            timestamp: Utc::now(),
             body,
         }
+    }
+}
+
+impl WithTimestamp for EventDto {
+    fn timestamp(&self) -> SystemTime {
+        self.timestamp.into()
     }
 }

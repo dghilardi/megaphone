@@ -144,4 +144,20 @@ impl AgentsManagerService {
         pipe_sessions_count -= 1;
         Ok(())
     }
+
+    pub fn is_agent_distributed(&self, name: &str) -> Result<bool, MegaphoneError> {
+        let Some(agent) = self.virtual_agents.get(name) else {
+            return Err(MegaphoneError::InternalError(format!("Agent {name} is not registered")));
+        };
+        match agent.status {
+            VirtualAgentStatus::Master => Ok(false),
+            VirtualAgentStatus::Replica { pipe_sessions_count: 0 } => Ok(false),
+            VirtualAgentStatus::Replica { .. } => Ok(true),
+            VirtualAgentStatus::Piped => Ok(true),
+        }
+    }
+
+    pub fn get_status(&self, name: &str) -> Option<VirtualAgentStatus> {
+        self.virtual_agents.get(name).map(|agent| agent.status)
+    }
 }

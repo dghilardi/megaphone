@@ -1,3 +1,4 @@
+use std::ops::Add;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -6,11 +7,12 @@ use metrics::{histogram, increment_counter};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use crate::core::error::MegaphoneError;
-use crate::service::agents_manager_service::AgentsManagerService;
+use crate::service::agents_manager_service::{AgentsManagerService, VirtualAgentStatus};
 
 pub const CHANNEL_CREATED_METRIC_NAME: &str = "megaphone_channel_created";
 pub const CHANNEL_DISPOSED_METRIC_NAME: &str = "megaphone_channel_disposed";
@@ -27,9 +29,11 @@ pub struct BufferedChannel<Event> {
     created_ts: Arc<Mutex<SystemTime>>,
 }
 
+const EVT_BUFFER_SIZE: usize = 100;
+
 impl<Event> BufferedChannel<Event> {
     fn new() -> Self {
-        let (tx, rx) = channel(100);
+        let (tx, rx) = channel(EVT_BUFFER_SIZE);
         Self {
             tx,
             rx: Arc::new(Mutex::new(rx)),
@@ -111,26 +115,14 @@ impl<Event> MegaphoneService<Event> {
         }))
     }
 
-    pub async fn write_into_channel(&self, id: &str, message: Event) -> Result<(), MegaphoneError> {
-        let Some(channel) = self.buffer.get(id) else {
-            increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
-            return Err(MegaphoneError::NotFound);
-        };
-        increment_counter!(MESSAGES_RECEIVED_METRIC_NAME);
-        channel.tx
-            .send(message)
-            .await
-            .map_err(|err| MegaphoneError::InternalError(format!("Error writing channel - {err}")))
-    }
-
     pub fn channel_exists(&self, id: &str) -> bool {
         self.buffer.contains_key(id)
     }
 
     pub fn drop_expired(&self) {
         self.buffer
-            .retain(|_, channel| {
-                let retain_item = channel.last_read
+            .retain(|channel_id, channel| {
+                let channel_not_expired = channel.last_read
                     .try_lock()
                     .map(|last_read| {
                         let deadline = SystemTime::now() - Duration::from_secs(60);
@@ -138,7 +130,14 @@ impl<Event> MegaphoneService<Event> {
                     })
                     .unwrap_or(true);
 
-                if !retain_item {
+                let keep_channel = !channel_not_expired || channel_id.split('.').next()
+                    .and_then(|agent_id| self.agents_manager.is_agent_distributed(agent_id).ok())
+                    .unwrap_or_else(|| {
+                        log::warn!("Could not determine if agent is distributed");
+                        false
+                    });
+
+                if !keep_channel {
                     increment_counter!(CHANNEL_DISPOSED_METRIC_NAME);
                     if let Ok(created) = channel.created_ts.try_lock() {
                         if let Ok(duration) = SystemTime::now().duration_since(*created) {
@@ -157,7 +156,86 @@ impl<Event> MegaphoneService<Event> {
                     }
                 }
 
-                retain_item
+                channel_not_expired
             });
+    }
+}
+
+pub trait WithTimestamp {
+    fn timestamp(&self) -> SystemTime;
+}
+
+impl <Event: WithTimestamp> MegaphoneService<Event> {
+
+    pub async fn write_into_channel(&self, id: &str, message: Event) -> Result<(), MegaphoneError> {
+        let Some(channel) = self.buffer.get(id) else {
+            increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
+            return Err(MegaphoneError::NotFound);
+        };
+        increment_counter!(MESSAGES_RECEIVED_METRIC_NAME);
+
+        let is_piped = id.split('.').next()
+            .and_then(|agent_id| self.agents_manager.get_status(agent_id).map(|status| matches!(status, VirtualAgentStatus::Piped)))
+            .unwrap_or(false)
+            ;
+
+        if is_piped {
+            match channel.tx.try_send(message) {
+                Ok(()) => Ok(()),
+                Err(TrySendError::Full(message)) => {
+                    channel.force_write(message)
+                },
+                Err(TrySendError::Closed(_)) => Err(MegaphoneError::InternalError(format!("Channel is closed"))),
+            }
+        } else {
+            channel.tx
+                .send(message)
+                .await
+                .map_err(|err| MegaphoneError::InternalError(format!("Error writing channel - {err}")))
+        }
+    }
+
+    pub fn inject_into_channel(&self, id: &str, message: Event) -> Result<(), MegaphoneError> {
+        let Some(channel) = self.buffer.get(id) else {
+            increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
+            return Err(MegaphoneError::NotFound);
+        };
+        increment_counter!(MESSAGES_RECEIVED_METRIC_NAME);
+        match channel.tx.try_send(message) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(message)) => {
+                channel.force_write(message)
+            },
+            Err(TrySendError::Closed(message)) => {
+                log::error!("Error injecting message - channel is disconnected");
+                Err(MegaphoneError::InternalError(String::from("Disconnected channel")))
+            }
+        }
+    }
+}
+
+impl <Event: WithTimestamp> BufferedChannel<Event> {
+    pub fn force_write(&self, event: Event) -> Result<(), MegaphoneError> {
+        let mut rx = self.rx.try_lock()
+            .map_err(|_err| MegaphoneError::InternalError(String::from("Cannot lock channel rx")))?;
+        let mut buffered_evts = Vec::with_capacity(EVT_BUFFER_SIZE);
+        let now = SystemTime::now();
+        let _skipped = rx.try_recv(); // Skip first event to preserve one slot
+        increment_counter!(MESSAGES_LOST_METRIC_NAME);
+        while let Ok(evt) = rx.try_recv() {
+            if evt.timestamp().add(Duration::from_secs(60)).gt(&now) {
+                buffered_evts.push(evt);
+            } else {
+                increment_counter!(MESSAGES_LOST_METRIC_NAME);
+            }
+        }
+        buffered_evts.push(event);
+        for evt in buffered_evts {
+            let out = self.tx.try_send(evt);
+            if let Err(err) = out {
+                log::error!("Error writing back event to the channel - {err}");
+            }
+        }
+        Ok(())
     }
 }

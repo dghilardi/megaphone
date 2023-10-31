@@ -1,6 +1,10 @@
+use std::cmp;
 use std::collections::HashSet;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::StreamExt;
+use prost_types::Timestamp;
 use tonic::{Request, Response, Status, Streaming};
+use crate::core::error::MegaphoneError;
 use crate::dto::message::EventDto;
 
 use crate::grpc::server::megaphone::{EventReceived, SyncReply, SyncRequest};
@@ -67,7 +71,9 @@ impl SyncService for MegaphoneSyncService {
                     }
                 }
                 Ok(SyncRequest { sync_event: Some(SyncEvent::EventReceived(req)) }) => {
-                    let out = self.megaphone_svc.write_into_channel(&req.channel_id.clone(), EventDto::from(req)).await;
+                    let channel_id = req.channel_id.clone();
+                    let out = EventDto::try_from(req)
+                        .and_then(|evt| self.megaphone_svc.inject_into_channel(&channel_id, evt));
                     if let Err(err) = out {
                         log::error!("Error processing event-received - {err}");
                     }
@@ -87,12 +93,30 @@ impl SyncService for MegaphoneSyncService {
     }
 }
 
-impl From<EventReceived> for EventDto {
-    fn from(value: EventReceived) -> Self {
-        Self {
+fn datetime_to_timestamp(datetime: DateTime<Utc>) -> Timestamp {
+    Timestamp {
+        seconds: datetime.timestamp(),
+        nanos: datetime.timestamp_subsec_nanos().try_into().unwrap_or(i32::MAX),
+    }
+}
+
+fn timestamp_to_datetime(timestamp: Timestamp) -> Option<DateTime<Utc>> {
+    let naive = NaiveDateTime::from_timestamp_opt(timestamp.seconds, cmp::max(0, timestamp.nanos) as u32)?;
+    Some(DateTime::from_utc(naive, Utc))
+}
+
+impl TryFrom<EventReceived> for EventDto {
+    type Error = MegaphoneError;
+
+    fn try_from(value: EventReceived) -> Result<Self, Self::Error> {
+        Ok(Self {
             stream_id: value.stream_id,
             event_id: value.event_id,
-            body: Default::default(),
-        }
+            timestamp: value.timestamp
+                .and_then(timestamp_to_datetime)
+                .unwrap_or_else(Utc::now),
+            body: serde_json::from_str(&value.json_payload)
+                .map_err(|err| MegaphoneError::BadRequest(format!("Cannot deserialize json payload - {err}")))?,
+        })
     }
 }

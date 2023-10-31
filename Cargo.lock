@@ -1251,6 +1251,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "prost",
+ "prost-types",
  "rand",
  "regex",
  "serde",
