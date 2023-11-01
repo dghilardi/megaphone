@@ -21,12 +21,12 @@ pub enum VirtualAgentModeDto {
     Piped,
 }
 
-impl From<VirtualAgentStatus> for VirtualAgentModeDto {
-    fn from(value: VirtualAgentStatus) -> Self {
+impl From<&VirtualAgentStatus> for VirtualAgentModeDto {
+    fn from(value: &VirtualAgentStatus) -> Self {
         match value {
             VirtualAgentStatus::Master => Self::Master,
             VirtualAgentStatus::Replica { .. } => Self::Replica,
-            VirtualAgentStatus::Piped => Self::Piped,
+            VirtualAgentStatus::Piped { .. } => Self::Piped,
         }
     }
 }
@@ -39,7 +39,7 @@ pub struct AddVirtualAgentReqDto {
 #[derive(Serialize, Deserialize)]
 pub struct PipeVirtualAgentReqDto {
     pub name: String,
-    pub target: SocketAddr,
+    pub target: String,
 }
 
 #[derive(Serialize, Deserialize)]

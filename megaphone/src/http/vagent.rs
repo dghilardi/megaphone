@@ -2,10 +2,19 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 use axum::response::IntoResponse;
+use futures::FutureExt;
+use tokio::sync::mpsc;
+use tonic::codegen::tokio_stream::wrappers;
+use crate::core::error::MegaphoneError;
 
 use crate::dto::agent::{AddVirtualAgentReqDto, BasicOutcomeDto, PipeVirtualAgentReqDto, VirtualAgentItemDto, VirtualAgentModeDto};
 use crate::dto::error::ErrorDto;
-use crate::service::agents_manager_service::AgentsManagerService;
+use crate::grpc::server::megaphone::sync_service_client::SyncServiceClient;
+use crate::grpc::server::megaphone::SyncRequest;
+use crate::service::agents_manager_service::{AgentsManagerService, SyncEvent};
+use futures::StreamExt;
+use crate::dto::message::EventDto;
+use crate::service::megaphone_service::MegaphoneService;
 
 pub async fn list_virtual_agents(
     State(svc): State<AgentsManagerService>,
@@ -30,8 +39,25 @@ pub async fn add_virtual_agent(
 }
 
 pub async fn pipe_virtual_agent(
-    State(svc): State<AgentsManagerService>,
+    State(agent_mgr): State<AgentsManagerService>,
+    State(channels_mgr): State<MegaphoneService<EventDto>>,
     Json(req): Json<PipeVirtualAgentReqDto>,
 ) -> Result<(StatusCode, Json<BasicOutcomeDto>), (StatusCode, Json<ErrorDto>)> {
+    let mut client = SyncServiceClient::connect(req.target).await
+        .map_err(|err| MegaphoneError::InternalError(format!("Error during connection establishment - {err}")))?;
+    let (tx, rx) = mpsc::channel(500);
+    tokio::spawn(async move {
+        match client.forward_events(wrappers::ReceiverStream::new(rx).map(|evt| SyncRequest::from(evt))).await {
+            Ok(ok) => log::info!("Pipe terminated with message - {}", ok.into_inner().message),
+            Err(err) => log::error!("Pipe terminated with error - {err}"),
+        }
+    });
+    agent_mgr.register_pipe(&req.name, tx.clone())?;
+    for channel_id in channels_mgr.channel_ids_by_agent(&req.name) {
+        let out = tx.send(SyncEvent::ChannelCreated { id: channel_id }).await;
+        if let Err(err) = out {
+            log::error!("Error registering channel - {err}")
+        }
+    }
     Ok((StatusCode::ACCEPTED, Json(BasicOutcomeDto::ok())))
 }

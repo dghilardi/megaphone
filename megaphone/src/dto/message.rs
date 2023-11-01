@@ -5,7 +5,7 @@ use rand::distributions::Alphanumeric;
 use serde::{Serialize, Deserialize};
 use crate::service::megaphone_service::WithTimestamp;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EventDto {
     #[serde(rename = "sid")]
     pub stream_id: String,

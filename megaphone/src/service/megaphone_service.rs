@@ -12,7 +12,8 @@ use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use crate::core::error::MegaphoneError;
-use crate::service::agents_manager_service::{AgentsManagerService, VirtualAgentStatus};
+use crate::dto::message::EventDto;
+use crate::service::agents_manager_service::{AgentsManagerService, SyncEvent, VirtualAgentStatus};
 
 pub const CHANNEL_CREATED_METRIC_NAME: &str = "megaphone_channel_created";
 pub const CHANNEL_DISPOSED_METRIC_NAME: &str = "megaphone_channel_disposed";
@@ -159,27 +160,40 @@ impl<Event> MegaphoneService<Event> {
                 channel_not_expired
             });
     }
+
+    pub fn channel_ids_by_agent<'a>(&'a self, name: &str) -> impl Iterator<Item=String> + 'a {
+        let agent_prefix = format!("{name}.");
+        self.buffer.iter()
+            .filter(move |channel| channel.key().starts_with(&agent_prefix))
+            .map(|channel| channel.key().to_string())
+    }
 }
 
 pub trait WithTimestamp {
     fn timestamp(&self) -> SystemTime;
 }
 
-impl <Event: WithTimestamp> MegaphoneService<Event> {
+impl MegaphoneService<EventDto> {
 
-    pub async fn write_into_channel(&self, id: &str, message: Event) -> Result<(), MegaphoneError> {
+    pub async fn write_into_channel(&self, id: &str, message: EventDto) -> Result<(), MegaphoneError> {
         let Some(channel) = self.buffer.get(id) else {
             increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
             return Err(MegaphoneError::NotFound);
         };
         increment_counter!(MESSAGES_RECEIVED_METRIC_NAME);
 
-        let is_piped = id.split('.').next()
-            .and_then(|agent_id| self.agents_manager.get_status(agent_id).map(|status| matches!(status, VirtualAgentStatus::Piped)))
-            .unwrap_or(false)
-            ;
+        let pipes = id.split('.').next()
+            .map(|agent_id| self.agents_manager.get_pipes(agent_id))
+            .unwrap_or_default();
 
-        if is_piped {
+        for pipe in &pipes {
+            let out = pipe.try_send(SyncEvent::EventReceived { channel: id.to_string(), event: message.clone() });
+            if let Err(err) = out {
+                log::error!("Error during event pipe - {err}");
+            }
+        }
+
+        if !pipes.is_empty() {
             match channel.tx.try_send(message) {
                 Ok(()) => Ok(()),
                 Err(TrySendError::Full(message)) => {
@@ -195,7 +209,7 @@ impl <Event: WithTimestamp> MegaphoneService<Event> {
         }
     }
 
-    pub fn inject_into_channel(&self, id: &str, message: Event) -> Result<(), MegaphoneError> {
+    pub fn inject_into_channel(&self, id: &str, message: EventDto) -> Result<(), MegaphoneError> {
         let Some(channel) = self.buffer.get(id) else {
             increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
             return Err(MegaphoneError::NotFound);

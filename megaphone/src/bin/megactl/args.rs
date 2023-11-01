@@ -42,7 +42,7 @@ pub struct PipeAgentArgs {
     #[arg(short, long)]
     pub name: String,
     #[arg(short, long)]
-    pub target: SocketAddr,
+    pub target: String,
 }
 
 impl From<AddAgentArgs> for AddVirtualAgentReqDto {

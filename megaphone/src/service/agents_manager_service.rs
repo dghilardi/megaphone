@@ -7,9 +7,11 @@ use dashmap::DashMap;
 use dashmap::mapref::multiple::RefMulti;
 use lazy_static::lazy_static;
 use rand::seq::IteratorRandom;
+use tokio::sync::mpsc;
 
 use crate::core::config::{AgentConfig, VirtualAgentMode};
 use crate::core::error::MegaphoneError;
+use crate::dto::message::EventDto;
 
 pub const WARMUP_SECS: u64 = 60;
 
@@ -32,8 +34,8 @@ impl VirtualAgentProps {
         self.status = status;
     }
 
-    pub fn status(&self) -> VirtualAgentStatus {
-        self.status
+    pub fn status(&self) -> &VirtualAgentStatus {
+        &self.status
     }
 
     pub fn change_ts(&self) -> SystemTime {
@@ -44,16 +46,16 @@ impl VirtualAgentProps {
         match self.status {
             VirtualAgentStatus::Master => self.change_ts.add(Duration::from_secs(WARMUP_SECS)).gt(&SystemTime::now()),
             VirtualAgentStatus::Replica { .. } => false,
-            VirtualAgentStatus::Piped => false,
+            VirtualAgentStatus::Piped { .. } => false,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum VirtualAgentStatus {
     Master,
     Replica { pipe_sessions_count: usize },
-    Piped,
+    Piped { pipes: Vec<mpsc::Sender<SyncEvent>> },
 }
 
 impl From<VirtualAgentMode> for VirtualAgentStatus {
@@ -153,11 +155,36 @@ impl AgentsManagerService {
             VirtualAgentStatus::Master => Ok(false),
             VirtualAgentStatus::Replica { pipe_sessions_count: 0 } => Ok(false),
             VirtualAgentStatus::Replica { .. } => Ok(true),
-            VirtualAgentStatus::Piped => Ok(true),
+            VirtualAgentStatus::Piped { .. } => Ok(true),
         }
     }
 
-    pub fn get_status(&self, name: &str) -> Option<VirtualAgentStatus> {
-        self.virtual_agents.get(name).map(|agent| agent.status)
+    pub fn get_pipes(&self, name: &str) -> Vec<mpsc::Sender<SyncEvent>> {
+        self.virtual_agents.get(name)
+            .and_then(|agent| if let VirtualAgentStatus::Piped { pipes } = &agent.status { Some(pipes.clone()) } else { None })
+            .unwrap_or_default()
     }
+
+    pub fn register_pipe(&self, name: &str, pipe: mpsc::Sender<SyncEvent>) -> Result<(), MegaphoneError> {
+        let Some(mut agent) = self.virtual_agents.get_mut(name) else {
+            return Err(MegaphoneError::BadRequest(format!("Agent {name} is not registered")))
+        };
+        let Ok(()) = pipe.try_send(SyncEvent::PipeAgentStart { name: name.to_string() }) else {
+            return Err(MegaphoneError::InternalError(format!("Error sending pipe registration event for agent {name}")))
+        };
+        agent.status = match &agent.status {
+            VirtualAgentStatus::Master => VirtualAgentStatus::Piped { pipes: vec![pipe] },
+            VirtualAgentStatus::Piped { pipes } => VirtualAgentStatus::Piped { pipes: pipes.clone().into_iter().chain([pipe]).collect() },
+            VirtualAgentStatus::Replica { .. } => return Err(MegaphoneError::BadRequest(format!("Cannot pipe agent because it is already a replica"))),
+        };
+        Ok(())
+    }
+}
+
+pub enum SyncEvent {
+    PipeAgentStart { name: String },
+    PipeAgentEnd { name: String },
+    ChannelCreated { id: String },
+    ChannelDisposed { id: String },
+    EventReceived { channel: String, event: EventDto },
 }
