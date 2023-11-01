@@ -13,7 +13,7 @@ use tokio::time::Instant;
 
 use crate::core::error::MegaphoneError;
 use crate::dto::message::EventDto;
-use crate::service::agents_manager_service::{AgentsManagerService, SyncEvent, VirtualAgentStatus};
+use crate::service::agents_manager_service::{AgentsManagerService, SyncEvent};
 
 pub const CHANNEL_CREATED_METRIC_NAME: &str = "megaphone_channel_created";
 pub const CHANNEL_DISPOSED_METRIC_NAME: &str = "megaphone_channel_disposed";
@@ -107,7 +107,7 @@ impl<Event> MegaphoneService<Event> {
                 Ok(Some(msg)) => {
                     increment_counter!(MESSAGES_SENT_METRIC_NAME);
                     Some((msg, (rx_guard, ts_guard)))
-                },
+                }
                 Ok(None) | Err(_) => {
                     *ts_guard = SystemTime::now();
                     None
@@ -131,10 +131,10 @@ impl<Event> MegaphoneService<Event> {
                     })
                     .unwrap_or(true);
 
-                let keep_channel = !channel_not_expired || channel_id.split('.').next()
+                let keep_channel = channel_not_expired || channel_id.split('.').next()
                     .and_then(|agent_id| self.agents_manager.is_agent_distributed(agent_id).ok())
                     .unwrap_or_else(|| {
-                        log::warn!("Could not determine if agent is distributed");
+                        log::warn!("Could not determine if agent is distributed for channel {channel_id}");
                         false
                     });
 
@@ -157,7 +157,7 @@ impl<Event> MegaphoneService<Event> {
                     }
                 }
 
-                channel_not_expired
+                keep_channel
             });
     }
 
@@ -174,7 +174,6 @@ pub trait WithTimestamp {
 }
 
 impl MegaphoneService<EventDto> {
-
     pub async fn write_into_channel(&self, id: &str, message: EventDto) -> Result<(), MegaphoneError> {
         let Some(channel) = self.buffer.get(id) else {
             increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
@@ -198,7 +197,7 @@ impl MegaphoneService<EventDto> {
                 Ok(()) => Ok(()),
                 Err(TrySendError::Full(message)) => {
                     channel.force_write(message)
-                },
+                }
                 Err(TrySendError::Closed(_)) => Err(MegaphoneError::InternalError(format!("Channel is closed"))),
             }
         } else {
@@ -219,7 +218,7 @@ impl MegaphoneService<EventDto> {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(message)) => {
                 channel.force_write(message)
-            },
+            }
             Err(TrySendError::Closed(message)) => {
                 log::error!("Error injecting message - channel is disconnected");
                 Err(MegaphoneError::InternalError(String::from("Disconnected channel")))
@@ -228,13 +227,14 @@ impl MegaphoneService<EventDto> {
     }
 }
 
-impl <Event: WithTimestamp> BufferedChannel<Event> {
+impl<Event: WithTimestamp> BufferedChannel<Event> {
     pub fn force_write(&self, event: Event) -> Result<(), MegaphoneError> {
         let mut rx = self.rx.try_lock()
             .map_err(|_err| MegaphoneError::InternalError(String::from("Cannot lock channel rx")))?;
         let mut buffered_evts = Vec::with_capacity(EVT_BUFFER_SIZE);
         let now = SystemTime::now();
-        let _skipped = rx.try_recv(); // Skip first event to preserve one slot
+        let _skipped = rx.try_recv();
+        // Skip first event to preserve one slot
         increment_counter!(MESSAGES_LOST_METRIC_NAME);
         while let Ok(evt) = rx.try_recv() {
             if evt.timestamp().add(Duration::from_secs(60)).gt(&now) {
