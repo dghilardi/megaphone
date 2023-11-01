@@ -201,8 +201,9 @@ impl MegaphoneService<EventDto> {
                 Err(TrySendError::Closed(_)) => Err(MegaphoneError::InternalError(format!("Channel is closed"))),
             }
         } else {
-            channel.tx
-                .send(message)
+            let tx = channel.tx.clone();
+            drop(channel);
+            tx.send_timeout(message, Duration::from_secs(10))
                 .await
                 .map_err(|err| MegaphoneError::InternalError(format!("Error writing channel - {err}")))
         }
