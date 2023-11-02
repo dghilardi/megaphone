@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
+use dashmap::mapref::multiple::RefMulti;
 use metrics::{histogram, increment_counter};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
@@ -40,6 +41,27 @@ impl<Event> BufferedChannel<Event> {
             rx: Arc::new(Mutex::new(rx)),
             last_read: Arc::new(Mutex::new(SystemTime::now())),
             created_ts: Arc::new(Mutex::new(SystemTime::now())),
+        }
+    }
+}
+
+impl <Event> Drop for BufferedChannel<Event> {
+    fn drop(&mut self) {
+        increment_counter!(CHANNEL_DISPOSED_METRIC_NAME);
+        if let Ok(created) = self.created_ts.try_lock() {
+            if let Ok(duration) = SystemTime::now().duration_since(*created) {
+                histogram!(CHANNEL_DURATION_METRIC_NAME, duration.as_secs_f64());
+            }
+        } else {
+            log::warn!("Could not lock created timestamp during channel dispose");
+        }
+
+        if let Ok(mut stream) = self.rx.try_lock() {
+            while let Ok(msg) = stream.try_recv() {
+                increment_counter!(MESSAGES_LOST_METRIC_NAME);
+            }
+        } else {
+            log::warn!("Could not lock receiver during channel dispose");
         }
     }
 }
@@ -138,27 +160,15 @@ impl<Event> MegaphoneService<Event> {
                         false
                     });
 
-                if !keep_channel {
-                    increment_counter!(CHANNEL_DISPOSED_METRIC_NAME);
-                    if let Ok(created) = channel.created_ts.try_lock() {
-                        if let Ok(duration) = SystemTime::now().duration_since(*created) {
-                            histogram!(CHANNEL_DURATION_METRIC_NAME, duration.as_secs_f64());
-                        }
-                    } else {
-                        log::warn!("Could not lock created timestamp during channel dispose");
-                    }
-
-                    if let Ok(mut stream) = channel.rx.try_lock() {
-                        while let Ok(msg) = stream.try_recv() {
-                            increment_counter!(MESSAGES_LOST_METRIC_NAME);
-                        }
-                    } else {
-                        log::warn!("Could not lock receiver during channel dispose");
-                    }
-                }
-
                 keep_channel
             });
+    }
+
+    pub fn drop_channel(&self, id: &str) -> Result<(), MegaphoneError> {
+        let Some((_id, _channel)) = self.buffer.remove(id) else {
+            return Err(MegaphoneError::InternalError(format!("Could not find channel with id {id}")))
+        };
+        Ok(())
     }
 
     pub fn channel_ids_by_agent<'a>(&'a self, name: &str) -> impl Iterator<Item=String> + 'a {
@@ -166,6 +176,16 @@ impl<Event> MegaphoneService<Event> {
         self.buffer.iter()
             .filter(move |channel| channel.key().starts_with(&agent_prefix))
             .map(|channel| channel.key().to_string())
+    }
+
+    pub fn list_channels<'a, C: From<RefMulti<'a, String, BufferedChannel<Event>>>>(&'a self, skip: usize, limit: usize) -> Vec<C>
+    where Event: 'a
+    {
+        self.buffer.iter()
+            .map(|v| C::from(v))
+            .skip(skip)
+            .take(limit)
+            .collect()
     }
 }
 

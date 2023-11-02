@@ -3,15 +3,16 @@ use std::time::Duration;
 
 use axum::{BoxError, Json};
 use axum::body::StreamBody;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use futures::StreamExt;
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
 use crate::core::config::MegaphoneConfig;
+use crate::dto::agent::{BasicOutcomeDto, OutcomeStatus};
 
-use crate::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateResDto};
+use crate::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateResDto, ChannelInfoDto, ChannelsListParams};
 use crate::dto::error::ErrorDto;
 use crate::dto::message::EventDto;
 use crate::service::megaphone_service::MegaphoneService;
@@ -57,9 +58,11 @@ pub async fn write_handler(
     Path((channel_id, stream_id)): Path<(String, String)>,
     State(svc): State<MegaphoneService<EventDto>>,
     Json(body): Json<serde_json::Value>,
-) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<ErrorDto>)> {
+) -> Result<(StatusCode, Json<BasicOutcomeDto>), (StatusCode, Json<ErrorDto>)> {
     svc.write_into_channel(&channel_id, EventDto::new(stream_id, body)).await?;
-    Ok((StatusCode::CREATED, Json(json!({ "status": "ok" }))))
+    Ok((StatusCode::CREATED, Json(BasicOutcomeDto {
+        status: OutcomeStatus::Ok,
+    })))
 }
 
 pub async fn channel_exists_handler(
@@ -71,4 +74,21 @@ pub async fn channel_exists_handler(
             .map(|id| (id.clone(), svc.channel_exists(&id)))
             .collect(),
     }))
+}
+
+pub async fn channel_delete_handler(
+    Path(channel_id): Path<String>,
+    State(svc): State<MegaphoneService<EventDto>>,
+) -> Result<Json<BasicOutcomeDto>, (StatusCode, Json<ErrorDto>)> {
+    svc.drop_channel(&channel_id)?;
+    Ok(Json(BasicOutcomeDto {
+        status: OutcomeStatus::Ok,
+    }))
+}
+
+pub async fn channels_list_handler(
+    Query(params): Query<ChannelsListParams>,
+    State(svc): State<MegaphoneService<EventDto>>,
+) -> Result<Json<Vec<ChannelInfoDto>>, (StatusCode, Json<ErrorDto>)> {
+    Ok(Json(svc.list_channels(params.skip, params.limit)))
 }

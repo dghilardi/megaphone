@@ -29,6 +29,10 @@ pub enum Commands {
     AddAgent(AddAgentArgs),
     /// Pipe a virtual agent to a different megaphone instance
     PipeAgent(PipeAgentArgs),
+    /// List active channels
+    ListChannels(ListChannelsArgs),
+    /// Terminate and remove a channel
+    DisposeChannel(DisposeChannelArgs),
 }
 
 #[derive(Args, Debug)]
@@ -60,4 +64,18 @@ impl From<PipeAgentArgs> for PipeVirtualAgentReqDto {
             target: value.target,
         }
     }
+}
+
+#[derive(Args, Debug)]
+pub struct ListChannelsArgs {
+    #[arg(short, long)]
+    pub skip: Option<usize>,
+    #[arg(short, long)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Args, Debug)]
+pub struct DisposeChannelArgs {
+    #[arg(short, long)]
+    pub name: String,
 }

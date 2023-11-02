@@ -40,6 +40,27 @@ impl <C, B> SimpleRest<C, B>
         Ok(parsed_res)
     }
 
+    pub async fn delete<U, Res>(&self, url: U) -> anyhow::Result<Res>
+        where
+            B: Default + From<Vec<u8>>,
+            U: Into<Uri>,
+            Res: DeserializeOwned,
+    {
+        let http_req = Request::builder()
+            .method(Method::DELETE)
+            .uri(url.into())
+            .body(B::from(Vec::<u8>::new()))
+            .context("request builder")?;
+
+        let res = self.client.request(http_req).await?;
+        if !res.status().is_success() {
+            bail!("Response error")
+        }
+        let res_body: Bytes = hyper::body::to_bytes(res.into_body()).await?;
+        let parsed_res = serde_json::from_slice(&res_body[..])?;
+        Ok(parsed_res)
+    }
+
     pub async fn post<U, Req, Res>(&self, url: U, req: Req) -> anyhow::Result<Res>
         where
             B: Default + From<Vec<u8>>,

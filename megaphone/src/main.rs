@@ -8,7 +8,7 @@ use axum::{Router, routing::{get, post}, Server};
 use axum::extract::FromRef;
 use axum::handler::Handler;
 use axum::response::IntoResponse;
-use axum::routing::IntoMakeService;
+use axum::routing::{delete, IntoMakeService};
 use futures::{StreamExt, TryFutureExt};
 use hyperlocal::{SocketIncoming, UnixServerExt};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
@@ -104,6 +104,8 @@ pub fn build_server(path: impl AsRef<Path>, service: MegaphoneState<EventDto>) -
         .route("/vagent/list", get(http::vagent::list_virtual_agents))
         .route("/vagent/add", post(http::vagent::add_virtual_agent))
         .route("/vagent/pipe", post(http::vagent::pipe_virtual_agent))
+        .route("/channel/list", get(http::channel::channels_list_handler))
+        .route("/channel/:channel_id", delete(http::channel::channel_delete_handler))
         .with_state(service);
 
     let srv = axum::Server::bind_unix(path)?
