@@ -22,6 +22,17 @@ impl MegaphoneSpec {
     pub fn does_spec_change_require_pod_restart(&self, pod: &Pod) -> bool {
         false
     }
+
+    pub fn is_satisfied_by_pod(&self, pod: &Pod) -> bool {
+        let Some(megaphone_container) = pod.spec.as_ref()
+            .and_then(|spec| spec.containers.iter().find(|container| container.name.eq("megaphone"))) else {
+            return false;
+        };
+        if megaphone_container.image.as_ref().map(|image| image.ne(&self.image)).unwrap_or(true) {
+            return false;
+        }
+        true
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, JsonSchema)]

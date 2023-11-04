@@ -1,16 +1,14 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use anyhow::Result;
 use k8s_openapi::{api::core::v1::{Container, Pod, PodSpec}, apimachinery::pkg::apis::meta::v1::OwnerReference};
 use k8s_openapi::api::core::v1::{EnvVar, Service, ServicePort, ServiceSpec};
-use kube::{
-    api::{Api, ObjectMeta, Patch, PatchParams, Resource},
-    runtime::{
-        controller::Action,
-        finalizer::{Event as Finalizer, finalizer},
-    },
-};
+use kube::{api::{Api, ObjectMeta, Patch, PatchParams, Resource}, ResourceExt, runtime::{
+    controller::Action,
+    finalizer::{Event as Finalizer, finalizer},
+}};
+use kube::api::ListParams;
 use kube::core::PartialObjectMetaExt;
 use serde_json::json;
 use tokio::time::Duration;
@@ -23,6 +21,12 @@ use crate::model::spec::{Megaphone, MegaphoneClusterStatus, MegaphoneStatus};
 use crate::service::megactl_svc::MegactlService;
 
 pub static WORKLOAD_FINALIZER: &str = "megaphone.d71.dev";
+
+pub static LABEL_CLUSTER_NAME: &str = "megaphone-cluster";
+pub static LABEL_ACCEPTS_NEW_CHANNELS: &str = "accepts-new-channels";
+
+pub static LABEL_VALUE_ON: &str = "ON";
+pub static LABEL_VALUE_OFF: &str = "OFF";
 
 pub struct MegaphoneReconciler {
     megaphone: Arc<Megaphone>,
@@ -106,12 +110,12 @@ impl MegaphoneReconciler {
 
         let pod_labels = virtual_agent_ids.iter()
             .flat_map(|virtual_agent_id| [
-                (format!("megaphone-{virtual_agent_id}-write"), String::from("ON")),
-                (format!("megaphone-{virtual_agent_id}-read"), String::from("ON")),
+                (format!("megaphone-{virtual_agent_id}-write"), String::from(LABEL_VALUE_ON)),
+                (format!("megaphone-{virtual_agent_id}-read"), String::from(LABEL_VALUE_ON)),
             ])
             .chain([
-                (String::from("megaphone-cluster"), String::from(cluster_name)),
-                (String::from("accepts-new-channels"), String::from("OFF")),
+                (String::from(LABEL_CLUSTER_NAME), String::from(cluster_name)),
+                (String::from(LABEL_ACCEPTS_NEW_CHANNELS), String::from(LABEL_VALUE_OFF)),
             ])
             .collect();
 
@@ -130,7 +134,7 @@ impl MegaphoneReconciler {
                 },
                 spec: Some(PodSpec {
                     containers: vec![Container {
-                        name: pod_name.to_owned(),
+                        name: String::from("megaphone"),
                         image: Some(String::from(&self.megaphone.spec.image)),
                         resources: self.megaphone.spec.resources.clone()
                             .map(From::from),
@@ -170,7 +174,7 @@ impl MegaphoneReconciler {
                     }]),
                     selector: Some([
                         (String::from("megaphone-cluster"), cluster_name.to_owned()),
-                        (format!("megaphone-{virtual_agent_id}-{capability}"), String::from("ON")),
+                        (format!("megaphone-{virtual_agent_id}-{capability}"), String::from(LABEL_VALUE_ON)),
                     ].into_iter().collect()),
                     ..Default::default()
                 }),
@@ -201,8 +205,8 @@ impl MegaphoneReconciler {
                         ..Default::default()
                     }]),
                     selector: Some([
-                        (String::from("megaphone-cluster"), cluster_name.to_owned()),
-                        (String::from("accepts-new-channels"), String::from("ON")),
+                        (String::from(LABEL_CLUSTER_NAME), cluster_name.to_owned()),
+                        (String::from(LABEL_ACCEPTS_NEW_CHANNELS), String::from(LABEL_VALUE_ON)),
                     ].into_iter().collect()),
                     ..Default::default()
                 }),
@@ -219,17 +223,16 @@ impl MegaphoneReconciler {
         vitual_agents.iter()
             .into_iter()
             .flat_map(|virtual_agent| [
-                (format!("megaphone-{}-write", virtual_agent.name), if matches!(virtual_agent.mode, VirtualAgentModeDto::Master | VirtualAgentModeDto::Piped) { String::from("ON") } else { String::from("OFF") }),
-                (format!("megaphone-{}-read", virtual_agent.name), if matches!(virtual_agent.mode, VirtualAgentModeDto::Master | VirtualAgentModeDto::Replica) { String::from("ON") } else { String::from("OFF") }),
+                (format!("megaphone-{}-write", virtual_agent.name), if matches!(virtual_agent.mode, VirtualAgentModeDto::Master | VirtualAgentModeDto::Piped) { String::from(LABEL_VALUE_ON) } else { String::from(LABEL_VALUE_OFF) }),
+                (format!("megaphone-{}-read", virtual_agent.name), if matches!(virtual_agent.mode, VirtualAgentModeDto::Master | VirtualAgentModeDto::Replica) { String::from(LABEL_VALUE_ON) } else { String::from(LABEL_VALUE_OFF) }),
             ])
             .chain([
-                (String::from("megaphone-cluster"), String::from(self.cluster_name())),
-                (String::from("accepts-new-channels"), if has_ready_masters { String::from("ON") } else { String::from("OFF") }),
+                (String::from(LABEL_CLUSTER_NAME), String::from(self.cluster_name())),
+                (String::from(LABEL_ACCEPTS_NEW_CHANNELS), if has_ready_masters { String::from(LABEL_VALUE_ON) } else { String::from(LABEL_VALUE_OFF) }),
             ])
             .collect()
     }
 
-    fn is_send<T: Send>() -> bool { true }
     pub async fn reconcile(self) -> Result<Action, Error> {
         let current_workloads = self.megaphone
             .status
@@ -238,8 +241,11 @@ impl MegaphoneReconciler {
             .pods
             .len();
 
-        Self::is_send::<Megaphone>();
-        Self::is_send::<ContextData>();
+        let pods_status = self.determine_cluster_status().await?;
+
+        let total_pods_count = pods_status.values().map(|v| v.len()).sum();
+        let max_surge = 1;
+
 
         let pods_api = self.pods();
         let services_api = self.services();
@@ -329,14 +335,15 @@ impl MegaphoneReconciler {
             Ok(_) => new_services.push(cluster_svc.name),
             Err(e) => println!("Service Creation Failed {:?}", e),
         }
+        let status = MegaphoneStatus {
+            pods: new_pods,
+            services: new_services,
+            cluster_status: MegaphoneClusterStatus::Idle,
+            upgrade_spec: None,
+        };
 
         let update_status = json!({
-            "status": MegaphoneStatus {
-                pods: new_pods,
-                services: new_services,
-                cluster_status: MegaphoneClusterStatus::Idle,
-                upgrade_spec: None,
-            }
+            "status": status
         });
 
         let res = workloads_api
@@ -358,4 +365,46 @@ impl MegaphoneReconciler {
         }).await.map_err(|e| Error::FinalizerError(Box::new(e)))?;
         Ok(Action::requeue(Duration::from_secs(300)))
     }
+
+    async fn determine_cluster_status(&self) -> Result<HashMap<MegaphonePodStatus, Vec<Pod>>, Error> {
+        let pods_api = self.pods();
+        let params = ListParams::default().labels(&format!("{LABEL_CLUSTER_NAME}={}", self.cluster_name()));
+        let pods = pods_api.list(&params).await
+            .map_err(|err| Error::MissingObjectKey("Cannot find cluster pods"))?
+            .into_iter()
+            .map(|pod| (self.determine_pod_status(&pod), pod))
+            .fold(HashMap::new(), |mut acc, (state, pod)| {
+                acc
+                    .entry(state)
+                    .or_insert_with(Vec::new)
+                    .push(pod);
+                acc
+            });
+
+        Ok(pods)
+    }
+
+    fn determine_pod_status(&self, pod: &Pod) -> MegaphonePodStatus {
+        let accepts_new_channels = pod.labels()
+            .get(LABEL_ACCEPTS_NEW_CHANNELS)
+            .map(|value| value.eq(LABEL_VALUE_ON))
+            .unwrap_or(false);
+
+        let satisfies_spec = self.megaphone.spec.is_satisfied_by_pod(pod);
+
+        match (accepts_new_channels, satisfies_spec) {
+            (true, true) => MegaphonePodStatus::Active,
+            (true, false) => MegaphonePodStatus::QueuedForTearDown,
+            (false, true) => MegaphonePodStatus::WarmingUp,
+            (false, false) => MegaphonePodStatus::TearingDown,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+enum MegaphonePodStatus {
+    Active,
+    WarmingUp,
+    TearingDown,
+    QueuedForTearDown,
 }
