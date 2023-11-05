@@ -1273,6 +1273,8 @@ dependencies = [
  "kube",
  "megaphone",
  "openssl",
+ "rand",
+ "regex",
  "rustls",
  "schemars",
  "serde",

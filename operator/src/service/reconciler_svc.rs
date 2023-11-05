@@ -1,15 +1,20 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::fmt::Display;
 use std::sync::Arc;
 
 use anyhow::Result;
 use k8s_openapi::{api::core::v1::{Container, Pod, PodSpec}, apimachinery::pkg::apis::meta::v1::OwnerReference};
 use k8s_openapi::api::core::v1::{EnvVar, Service, ServicePort, ServiceSpec};
+use k8s_openapi::chrono::Utc;
 use kube::{api::{Api, ObjectMeta, Patch, PatchParams, Resource}, ResourceExt, runtime::{
     controller::Action,
     finalizer::{Event as Finalizer, finalizer},
 }};
-use kube::api::ListParams;
+use kube::api::{DeleteParams, ListParams};
 use kube::core::PartialObjectMetaExt;
+use rand::prelude::IteratorRandom;
+use rand::random;
+use regex::Regex;
 use serde_json::json;
 use tokio::time::Duration;
 
@@ -23,10 +28,13 @@ use crate::service::megactl_svc::MegactlService;
 pub static WORKLOAD_FINALIZER: &str = "megaphone.d71.dev";
 
 pub static LABEL_CLUSTER_NAME: &str = "megaphone-cluster";
+pub static LABEL_NODE_NAME: &str = "megaphone-node";
 pub static LABEL_ACCEPTS_NEW_CHANNELS: &str = "accepts-new-channels";
 
 pub static LABEL_VALUE_ON: &str = "ON";
 pub static LABEL_VALUE_OFF: &str = "OFF";
+
+static CONNECTION_LABELS_REGEX: &str = r#"^(accepts-new-channels|megaphone-[a-zA-Z0-9]+-read|megaphone-[a-zA-Z0-9]+-write)$"#;
 
 pub struct MegaphoneReconciler {
     megaphone: Arc<Megaphone>,
@@ -108,6 +116,8 @@ impl MegaphoneReconciler {
             })
             .collect::<Vec<_>>();
 
+        let pod_name = format!("mgp-{cluster_name}-{idx}");
+
         let pod_labels = virtual_agent_ids.iter()
             .flat_map(|virtual_agent_id| [
                 (format!("megaphone-{virtual_agent_id}-write"), String::from(LABEL_VALUE_ON)),
@@ -115,11 +125,11 @@ impl MegaphoneReconciler {
             ])
             .chain([
                 (String::from(LABEL_CLUSTER_NAME), String::from(cluster_name)),
+                (String::from(LABEL_NODE_NAME), String::from(&pod_name)),
                 (String::from(LABEL_ACCEPTS_NEW_CHANNELS), String::from(LABEL_VALUE_OFF)),
             ])
             .collect();
 
-        let pod_name = format!("mgp-{cluster_name}-{idx}");
 
         MegaphonePod {
             name: pod_name.to_owned(),
@@ -173,8 +183,43 @@ impl MegaphoneReconciler {
                         ..Default::default()
                     }]),
                     selector: Some([
-                        (String::from("megaphone-cluster"), cluster_name.to_owned()),
+                        (String::from(LABEL_CLUSTER_NAME), cluster_name.to_owned()),
                         (format!("megaphone-{virtual_agent_id}-{capability}"), String::from(LABEL_VALUE_ON)),
+                    ].into_iter().collect()),
+                    ..Default::default()
+                }),
+                status: None,
+            },
+        }
+    }
+
+    fn create_internal_pod_service(&self, pod_name: &str) -> MegaphoneService {
+        let cluster_name = self.cluster_name();
+        let namespace = self.cluster_namespace();
+        let oref = self.owner_ref();
+
+        let svc_name = format!("{pod_name}");
+        MegaphoneService {
+            name: svc_name.to_string(),
+            spec: Service {
+                metadata: ObjectMeta {
+                    name: Some(svc_name.to_owned()),
+                    namespace: Some(namespace.to_owned()),
+                    owner_references: Some(vec![oref]),
+                    labels: Some([
+                        (String::from("svc-megaphone-cluster"), cluster_name.to_owned())
+                    ].into_iter().collect()),
+                    ..Default::default()
+                },
+                spec: Some(ServiceSpec {
+                    ports: Some(vec![ServicePort {
+                        name: Some(String::from("http")),
+                        port: 3001,
+                        ..Default::default()
+                    }]),
+                    selector: Some([
+                        (String::from(LABEL_CLUSTER_NAME), cluster_name.to_owned()),
+                        (String::from(LABEL_NODE_NAME), String::from(pod_name)),
                     ].into_iter().collect()),
                     ..Default::default()
                 }),
@@ -215,7 +260,7 @@ impl MegaphoneReconciler {
         }
     }
 
-    fn compute_pod_labels(&self, vitual_agents: &[VirtualAgentItemDto]) -> BTreeMap<String, String> {
+    fn compute_pod_labels(&self, vitual_agents: &[VirtualAgentItemDto], terminating: bool) -> BTreeMap<String, String> {
         let has_ready_masters = vitual_agents.iter()
             .find(|agent| matches!(agent.mode, VirtualAgentModeDto::Master) && !agent.warming_up)
             .is_some();
@@ -223,14 +268,95 @@ impl MegaphoneReconciler {
         vitual_agents.iter()
             .into_iter()
             .flat_map(|virtual_agent| [
-                (format!("megaphone-{}-write", virtual_agent.name), if matches!(virtual_agent.mode, VirtualAgentModeDto::Master | VirtualAgentModeDto::Piped) { String::from(LABEL_VALUE_ON) } else { String::from(LABEL_VALUE_OFF) }),
-                (format!("megaphone-{}-read", virtual_agent.name), if matches!(virtual_agent.mode, VirtualAgentModeDto::Master | VirtualAgentModeDto::Replica) { String::from(LABEL_VALUE_ON) } else { String::from(LABEL_VALUE_OFF) }),
+                (format!("megaphone-{}-write", virtual_agent.name), match virtual_agent.mode {
+                    VirtualAgentModeDto::Master => String::from(LABEL_VALUE_ON),
+                    VirtualAgentModeDto::Replica if virtual_agent.since + Duration::from_secs(50) < Utc::now() => String::from(LABEL_VALUE_ON),
+                    VirtualAgentModeDto::Replica => String::from(LABEL_VALUE_OFF),
+                    VirtualAgentModeDto::Piped if virtual_agent.since + Duration::from_secs(60) < Utc::now() => String::from(LABEL_VALUE_OFF),
+                    VirtualAgentModeDto::Piped => String::from(LABEL_VALUE_ON),
+                }),
+                (format!("megaphone-{}-read", virtual_agent.name), match virtual_agent.mode {
+                    VirtualAgentModeDto::Master => String::from(LABEL_VALUE_ON),
+                    VirtualAgentModeDto::Replica if virtual_agent.since + Duration::from_secs(30) < Utc::now() => String::from(LABEL_VALUE_ON),
+                    VirtualAgentModeDto::Replica => String::from(LABEL_VALUE_OFF),
+                    VirtualAgentModeDto::Piped if virtual_agent.since + Duration::from_secs(40) < Utc::now() => String::from(LABEL_VALUE_OFF),
+                    VirtualAgentModeDto::Piped => String::from(LABEL_VALUE_ON),
+                }),
             ])
             .chain([
                 (String::from(LABEL_CLUSTER_NAME), String::from(self.cluster_name())),
-                (String::from(LABEL_ACCEPTS_NEW_CHANNELS), if has_ready_masters { String::from(LABEL_VALUE_ON) } else { String::from(LABEL_VALUE_OFF) }),
+                (String::from(LABEL_ACCEPTS_NEW_CHANNELS), if has_ready_masters && !terminating { String::from(LABEL_VALUE_ON) } else { String::from(LABEL_VALUE_OFF) }),
             ])
             .collect()
+    }
+
+    async fn tear_down_pod<I>(&self, pod: &Pod, other_nodes_urls: I) -> Result<(), Error>
+        where I: IntoIterator,
+              I::Item: ToString,
+    {
+        let pod_name = pod.metadata.name.as_ref()
+            .ok_or_else(|| Error::InternalError(String::from("Cannot read pod name")))?;
+
+        if pod.metadata.labels.as_ref().and_then(|labels| labels.get(LABEL_ACCEPTS_NEW_CHANNELS)).map(|value| value.eq(LABEL_VALUE_ON)).unwrap_or(false) {
+            let update_labels = ObjectMeta {
+                labels: Some(
+                    [(String::from(LABEL_ACCEPTS_NEW_CHANNELS), String::from(LABEL_VALUE_OFF))]
+                        .into_iter()
+                        .collect()
+                ),
+                ..Default::default()
+            }.into_request_partial::<Pod>();
+
+            self.pods()
+                .patch_metadata(pod_name, &PatchParams::default(), &Patch::Merge(&update_labels))
+                .await
+                .map_err(|err| Error::PodDeletionFailed(err))?;
+        }
+
+        let pipe_urls = other_nodes_urls.into_iter().map(|s| s.to_string()).collect::<HashSet<String>>();
+        if !pipe_urls.is_empty() {
+            let megactl = self.megactl();
+            let pod_agents = megactl.list_agents(pod_name).await
+                .map_err(|err| Error::InternalError(format!("Cannot list agents for pod {pod_name} - {err}")))?;
+
+            for agent in pod_agents {
+                match agent.mode {
+                    VirtualAgentModeDto::Master |
+                    VirtualAgentModeDto::Replica => {
+                        let pipe_url = pipe_urls.iter().choose(&mut rand::thread_rng()).expect("Error selecting url");
+                        let out = megactl.pipe_agent(pod_name, &agent.name, pipe_url).await;
+                        match out {
+                            Ok(_) => println!("Agent {} piped to {pipe_url}", agent.name),
+                            Err(err) => eprintln!("Error piping agent - {err}"),
+                        }
+                    }
+                    VirtualAgentModeDto::Piped => {}
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn align_labels(&self, pod: &Pod, status: MegaphonePodStatus) -> Result<Vec<VirtualAgentItemDto>, Error> {
+        let pod_name = pod.metadata.name.as_ref()
+            .ok_or_else(|| Error::InternalError(String::from("Cannot read pod name")))?;
+
+        let megactl = self.megactl();
+        let pod_agents = megactl.list_agents(pod_name).await
+            .map_err(|err| Error::InternalError(format!("Cannot list agents for pod {pod_name} - {err}")))?;
+
+        let labels = self.compute_pod_labels(&pod_agents, matches!(status, MegaphonePodStatus::TearingDown));
+        let update_labels = ObjectMeta {
+            labels: Some(labels),
+            ..Default::default()
+        }.into_request_partial::<Pod>();
+
+        self.pods()
+            .patch_metadata(pod_name, &PatchParams::default(), &Patch::Merge(&update_labels))
+            .await
+            .map_err(|err| Error::PodDeletionFailed(err))?;
+        Ok(pod_agents)
     }
 
     pub async fn reconcile(self) -> Result<Action, Error> {
@@ -241,12 +367,6 @@ impl MegaphoneReconciler {
             .pods
             .len();
 
-        let pods_status = self.determine_cluster_status().await?;
-
-        let total_pods_count = pods_status.values().map(|v| v.len()).sum();
-        let max_surge = 1;
-
-
         let pods_api = self.pods();
         let services_api = self.services();
         let workloads_api = self.workloads();
@@ -254,76 +374,126 @@ impl MegaphoneReconciler {
 
         let mut new_pods = Vec::<String>::new();
         let mut new_services = Vec::<String>::new();
-        for pod_idx in 0..self.megaphone.spec.replicas {
-            let megaphone_pod = self.create_pod(pod_idx);
-            let current_pod = pods_api.get_opt(&megaphone_pod.name).await
-                .map_err(Error::PodCreationFailed)?;
 
-            let megaphone_services = megaphone_pod.virtual_agent_ids.iter()
-                .flat_map(|virtual_agent_id| [
-                    self.create_virtual_agent_service(virtual_agent_id, "read"),
-                    self.create_virtual_agent_service(virtual_agent_id, "write"),
-                ])
-                .collect::<Vec<_>>();
+        let mut pods_status = self.determine_cluster_status().await?;
 
-            match current_pod {
-                None => {
-                    let res = pods_api
-                        .patch(
-                            &megaphone_pod.name,
-                            &PatchParams::apply("workload-Controller"),
-                            &Patch::Apply(megaphone_pod.spec.clone()),
-                        )
-                        .await
-                        .map_err(Error::PodCreationFailed);
-
-                    match res {
-                        Ok(_) => new_pods.push(megaphone_pod.name.clone()),
-                        Err(e) => println!("Pod Creation Failed {:?}", e),
-                    }
-                }
-                Some(current_pod_spec) if self.megaphone.spec.does_spec_change_require_pod_restart(&current_pod_spec) => {
-                    todo!("Cluster upgrade is not yet implemented")
-                }
-                Some(current_pod_spec) => {
-                    new_pods.push(megaphone_pod.name.clone());
-                }
-            }
-
-            let agents = match megactl_api.list_agents(&megaphone_pod.name).await {
-                Ok(agents) => agents,
-                Err(err) => {
-                    eprintln!("Could not find agents info - {err}");
-                    continue;
-                }
+        let mut deleted_pods = HashSet::new();
+        let connection_labels_regex = Regex::new(CONNECTION_LABELS_REGEX).unwrap();
+        for pod in pods_status.get(&MegaphonePodStatus::TearingDown).map(|v| &v[..]).unwrap_or_default() {
+            let Some(labels) = &pod.metadata.labels else {
+                continue;
             };
+            let completely_disconnected = labels.iter()
+                .filter(|(k, _)| connection_labels_regex.is_match(k))
+                .all(|(_k, v)| v.eq(LABEL_VALUE_OFF));
 
-            let update_labels = ObjectMeta {
-                labels: Some(self.compute_pod_labels(&agents)),
-                ..Default::default()
-            }.into_request_partial::<Pod>();
-            let patch_out = pods_api
-                .patch_metadata(&megaphone_pod.name, &PatchParams::default(), &Patch::Merge(&update_labels))
-                .await;
+            if completely_disconnected {
+                let Some(pod_name) = &pod.metadata.name else {
+                    continue;
+                };
+                println!("All connection labels are off for pod {pod_name}");
+                pods_api.delete(pod_name, &DeleteParams::default()).await
+                    .map_err(Error::PodDeletionFailed)?;
 
-            match patch_out {
-                Ok(pod) => println!("Pod meta correctly patched - {:?}", pod.metadata),
-                Err(err) => eprintln!("Error applying label patch - {err}"),
+                deleted_pods.insert(pod_name.to_string());
             }
+        }
 
-            for megaphone_svc in megaphone_services {
-                let res = services_api.patch(
-                    &megaphone_svc.name,
-                    &PatchParams::apply("workload-Controller"),
-                    &Patch::Apply(megaphone_svc.spec.clone()),
-                ).await;
+        if let Some(tearing_down_pods) = pods_status.get_mut(&MegaphonePodStatus::TearingDown) {
+            tearing_down_pods.retain(|pod| pod.metadata.name.as_ref().map(|name| deleted_pods.contains(name)).unwrap_or(false));
+        }
+
+        let total_pods_count = pods_status.values().map(|v| v.len()).sum::<usize>();
+        let max_surge = 1;
+
+        if total_pods_count < self.megaphone.spec.replicas {
+            for i in 0..self.megaphone.spec.replicas - total_pods_count {
+                let megaphone_pod = self.create_pod(random());
+
+                let res = pods_api
+                    .patch(
+                        &megaphone_pod.name,
+                        &PatchParams::apply("workload-Controller"),
+                        &Patch::Apply(megaphone_pod.spec.clone()),
+                    )
+                    .await
+                    .map_err(Error::PodCreationFailed);
 
                 match res {
-                    Ok(_) => new_services.push(megaphone_svc.name),
-                    Err(e) => println!("Service Creation Failed {:?}", e),
+                    Ok(_) => new_pods.push(megaphone_pod.name.clone()),
+                    Err(e) => println!("Pod Creation Failed {:?}", e),
+                }
+            }
+        } else if total_pods_count > self.megaphone.spec.replicas {
+            let to_delete = [
+                pods_status.get(&MegaphonePodStatus::WarmingUp).map(|v| &v[..]).unwrap_or_default(),
+                pods_status.get(&MegaphonePodStatus::Active).map(|v| &v[..]).unwrap_or_default(),
+            ]
+                .into_iter()
+                .flatten()
+                .take(total_pods_count- self.megaphone.spec.replicas);
+
+            for pod in to_delete {
+                self.tear_down_pod(pod, Vec::<String>::new()).await?;
+            }
+        }
+
+        let tear_down_list = pods_status.get(&MegaphonePodStatus::TearingDown)
+            .map(|v| &v[..])
+            .or_else(|| pods_status.get(&MegaphonePodStatus::QueuedForTearDown).map(|v| &v[0..max_surge]));
+
+
+        let pipe_targets = pods_status.get(&MegaphonePodStatus::Active)
+            .or_else(|| pods_status.get(&MegaphonePodStatus::QueuedForTearDown))
+            .map(|v| v.iter().flat_map(|pod| pod.metadata.name.as_ref()).collect::<Vec<_>>())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|pod_name| format!("http://{pod_name}.{}.svc.cluster.local:3001", self.cluster_namespace()))
+            .collect::<Vec<_>>();
+
+        for pod in tear_down_list.unwrap_or_default() {
+            self.tear_down_pod(pod, pipe_targets.iter()).await?;
+        }
+
+        let mut all_virtual_agents_ids = HashSet::new();
+        let mut all_pod_names = HashSet::new();
+        for (status, pods) in &pods_status {
+            for pod in pods {
+                let virtual_agents = self.align_labels(pod, *status).await?;
+                for agent in virtual_agents {
+                    all_virtual_agents_ids.insert(agent.name);
+                }
+                if let Some(pod_name) = &pod.metadata.name {
+                    all_pod_names.insert(pod_name.to_string());
                 }
             }
         }
+
+
+        let megaphone_agent_services = all_virtual_agents_ids.iter()
+            .flat_map(|virtual_agent_id| [
+                self.create_virtual_agent_service(virtual_agent_id, "read"),
+                self.create_virtual_agent_service(virtual_agent_id, "write"),
+            ])
+            .chain(
+                all_pod_names.into_iter()
+                    .map(|pod_name| self.create_internal_pod_service(&pod_name))
+            )
+            .collect::<Vec<_>>();
+
+        for megaphone_svc in megaphone_agent_services {
+            let res = services_api.patch(
+                &megaphone_svc.name,
+                &PatchParams::apply("workload-Controller"),
+                &Patch::Apply(megaphone_svc.spec.clone()),
+            ).await;
+
+            match res {
+                Ok(_) => new_services.push(megaphone_svc.name),
+                Err(e) => println!("Service Creation Failed {:?}", e),
+            }
+        }
+
         let cluster_svc = self.create_cluster_service();
         let res = services_api.patch(
             &cluster_svc.name,
@@ -363,7 +533,16 @@ impl MegaphoneReconciler {
                 _ => Ok(Action::await_change()),
             }
         }).await.map_err(|e| Error::FinalizerError(Box::new(e)))?;
-        Ok(Action::requeue(Duration::from_secs(300)))
+
+        let is_rollup_completed = pods_status.iter()
+            .filter(|(status, _)| !matches!(status, MegaphonePodStatus::Active))
+            .all(|(_, pods)| pods.is_empty());
+
+        if is_rollup_completed {
+            Ok(Action::requeue(Duration::from_secs(300)))
+        } else {
+            Ok(Action::requeue(Duration::from_secs(10)))
+        }
     }
 
     async fn determine_cluster_status(&self) -> Result<HashMap<MegaphonePodStatus, Vec<Pod>>, Error> {

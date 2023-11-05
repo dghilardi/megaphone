@@ -12,4 +12,6 @@ pub enum Error {
     // NB: awkward type because finalizer::Error embeds the reconciler error (which is this)
     // so boxing this error to break cycles
     FinalizerError(#[source] Box<kube::runtime::finalizer::Error<Error>>),
+    #[error("Internal error - {0}")]
+    InternalError(String),
 }
