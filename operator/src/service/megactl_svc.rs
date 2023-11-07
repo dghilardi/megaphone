@@ -20,7 +20,7 @@ impl MegactlService {
         }
     }
     async fn exec_megactl<Res: DeserializeOwned, Arg: AsRef<str>>(&self, pod_name: &str, args: &[Arg]) -> anyhow::Result<Res> {
-        let exec_params = AttachParams::default().stderr(false);
+        let exec_params = AttachParams::default().stderr(true);
         let command = ["/app/megactl", "-o", "json"].into_iter()
             .chain(args.into_iter().map(|a| a.as_ref()))
             .collect::<Vec<_>>();
@@ -28,6 +28,12 @@ impl MegactlService {
         let out_status = cmd_out.take_status().unwrap().await
             .ok_or_else(|| anyhow!("Cannot read cmd out status"))?;
         if out_status.status.as_ref().map(|status| status.eq("Success")).unwrap_or(false) {
+            if let Some(stderr) = cmd_out.stderr() {
+                let mut cmd_err_stream = tokio_util::io::ReaderStream::new(stderr);
+                while let Some(Ok(next_stderr)) = cmd_err_stream.next().await {
+                    eprintln!("ERR: {}", String::from_utf8(next_stderr.to_vec()).unwrap_or_default())
+                }
+            }
             let mut cmd_out_stream = tokio_util::io::ReaderStream::new(cmd_out.stdout().ok_or_else(|| anyhow!("Command returned empty output"))?);
             let next_stdout = cmd_out_stream.next().await
                 .ok_or_else(|| anyhow!("Empty stdout"))??;

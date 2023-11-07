@@ -1,10 +1,11 @@
-use hyper::{Body, Method, Request, Uri};
+use hyper::{Body, Method, Request, Response, Uri};
 use hyper::body::{Bytes, HttpBody};
 use hyper::client::connect::Connect;
 use std::error::Error as StdError;
 use anyhow::{bail, Context};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use megaphone::dto::error::ErrorDto;
 
 pub struct SimpleRest<C, B = Body> {
     client: hyper::Client<C, B>
@@ -33,7 +34,7 @@ impl <C, B> SimpleRest<C, B>
     {
         let res = self.client.get(url.into()).await?;
         if !res.status().is_success() {
-            bail!("Response error")
+            bail!("Service invocation error - {}", Self::extract_error_message(res).await)
         }
         let res_body: Bytes = hyper::body::to_bytes(res.into_body()).await?;
         let parsed_res = serde_json::from_slice(&res_body[..])?;
@@ -54,7 +55,7 @@ impl <C, B> SimpleRest<C, B>
 
         let res = self.client.request(http_req).await?;
         if !res.status().is_success() {
-            bail!("Response error")
+            bail!("Service invocation error - {}", Self::extract_error_message(res).await)
         }
         let res_body: Bytes = hyper::body::to_bytes(res.into_body()).await?;
         let parsed_res = serde_json::from_slice(&res_body[..])?;
@@ -77,10 +78,18 @@ impl <C, B> SimpleRest<C, B>
 
         let res = self.client.request(http_req).await?;
         if !res.status().is_success() {
-            bail!("Response error")
+            bail!("Service invocation error - {}", Self::extract_error_message(res).await)
         }
         let res_body: Bytes = hyper::body::to_bytes(res.into_body()).await?;
         let parsed_res = serde_json::from_slice(&res_body[..])?;
         Ok(parsed_res)
+    }
+
+    async fn extract_error_message(res: Response<Body>) -> String {
+        match hyper::body::to_bytes(res.into_body()).await.map(|bytes| serde_json::from_slice::<ErrorDto>(bytes.as_ref())) {
+            Ok(Ok(err_dto)) => format!("Megaphone error - {}", err_dto.code),
+            Ok(Err(err)) => format!("Deserialization error - {err}"),
+            Err(err) => format!("Error extracting response body - {err}"),
+        }
     }
 }
