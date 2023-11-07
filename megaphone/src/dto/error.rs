@@ -1,9 +1,9 @@
 use axum::http::StatusCode;
 use axum::Json;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use crate::core::error::MegaphoneError;
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ErrorDto {
     pub code: String,
 }
