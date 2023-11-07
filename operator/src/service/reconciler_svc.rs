@@ -377,6 +377,12 @@ impl MegaphoneReconciler {
 
         let mut pods_status = self.determine_cluster_status().await?;
 
+        for (status, pods) in &pods_status {
+            for pod in pods {
+                println!("{status:?} - {}", pod.metadata.name.as_ref().map(|s| &s[..]).unwrap_or(""))
+            }
+        }
+
         let mut deleted_pods = HashSet::new();
         let connection_labels_regex = Regex::new(CONNECTION_LABELS_REGEX).unwrap();
         for pod in pods_status.get(&MegaphonePodStatus::TearingDown).map(|v| &v[..]).unwrap_or_default() {
@@ -400,7 +406,7 @@ impl MegaphoneReconciler {
         }
 
         if let Some(tearing_down_pods) = pods_status.get_mut(&MegaphonePodStatus::TearingDown) {
-            tearing_down_pods.retain(|pod| pod.metadata.name.as_ref().map(|name| deleted_pods.contains(name)).unwrap_or(false));
+            tearing_down_pods.retain(|pod| !pod.metadata.name.as_ref().map(|name| deleted_pods.contains(name)).unwrap_or(false));
         }
 
         let total_pods_count = pods_status.values().map(|v| v.len()).sum::<usize>();
@@ -452,7 +458,10 @@ impl MegaphoneReconciler {
             .collect::<Vec<_>>();
 
         for pod in tear_down_list.unwrap_or_default() {
-            self.tear_down_pod(pod, pipe_targets.iter()).await?;
+            let out = self.tear_down_pod(pod, pipe_targets.iter()).await;
+            if let Err(err) = out {
+                eprintln!("Error tearing down pod - {err}");
+            }
         }
 
         let mut all_virtual_agents_ids = HashSet::new();
