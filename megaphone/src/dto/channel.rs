@@ -12,6 +12,33 @@ pub struct ChannelCreateResDto {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WriteBatchReqDto {
+    pub channel_ids: HashSet<String>,
+    pub messages: Vec<ChanMessage>,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ChanMessage {
+    pub stream_id: String,
+    pub body: serde_json::Value,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteBatchResDto {
+    pub failures: Vec<MessageDeliveryFailure>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageDeliveryFailure {
+    pub channel: String,
+    pub index: usize,
+    pub reason: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChanExistsReqDto {
     pub channel_ids: HashSet<String>,
 }

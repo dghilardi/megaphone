@@ -1,6 +1,7 @@
 use std::ops::Add;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+use clap::builder::TypedValueParser;
 
 use dashmap::DashMap;
 use dashmap::mapref::multiple::RefMulti;
@@ -8,11 +9,13 @@ use metrics::{histogram, increment_counter};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio::sync::mpsc::error::TrySendError;
+use tokio::sync::mpsc::error::{SendTimeoutError, TrySendError};
 use tokio::sync::Mutex;
 use tokio::time::Instant;
+use futures::FutureExt;
 
 use crate::core::error::MegaphoneError;
+use crate::dto::channel::MessageDeliveryFailure;
 use crate::dto::message::EventDto;
 use crate::service::agents_manager_service::{AgentsManagerService, SyncEvent};
 
@@ -194,6 +197,43 @@ pub trait WithTimestamp {
 }
 
 impl MegaphoneService<EventDto> {
+
+    pub async fn write_batch_into_channels(&self, ids: &[impl AsRef<str>], messages: Vec<EventDto>) -> Vec<MessageDeliveryFailure> {
+        let results_fut = ids.iter()
+            .map(|chan_id| self.write_batch_into_channel(chan_id.as_ref(), messages.clone()).map(|res| (chan_id.as_ref(), res)));
+
+        let results = futures::future::join_all(results_fut).await;
+
+        results.into_iter()
+            .map(|(chan_id, results)| results.into_iter()
+                .enumerate()
+                .flat_map(|(idx, res)| res.err().map(|err| (idx, err)))
+                .map(|(index, err)| MessageDeliveryFailure {
+                    channel: chan_id.to_string(),
+                    index,
+                    reason: String::from(err.code()),
+                })
+            )
+            .flatten()
+            .collect()
+    }
+
+    async fn write_batch_into_channel(&self, id: &str, messages: Vec<EventDto>) -> Vec<Result<(), MegaphoneError>> {
+        let mut results = Vec::with_capacity(messages.len());
+        let mut timeout_reached = false;
+        for message in messages {
+            if !timeout_reached {
+                let result = self.write_into_channel(id, message).await;
+                if let Err(MegaphoneError::Timeout { .. }) = &result {
+                    timeout_reached = true;
+                }
+                results.push(result);
+            } else {
+                results.push(Err(MegaphoneError::Skipped));
+            }
+        }
+        results
+    }
     pub async fn write_into_channel(&self, id: &str, message: EventDto) -> Result<(), MegaphoneError> {
         let Some(channel) = self.buffer.get(id) else {
             increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
@@ -218,14 +258,19 @@ impl MegaphoneService<EventDto> {
                 Err(TrySendError::Full(message)) => {
                     channel.force_write(message)
                 }
-                Err(TrySendError::Closed(_)) => Err(MegaphoneError::InternalError(format!("Channel is closed"))),
+                Err(TrySendError::Closed(_)) => Err(MegaphoneError::InternalError(String::from("Channel is closed"))),
             }
         } else {
             let tx = channel.tx.clone();
             drop(channel);
             tx.send_timeout(message, Duration::from_secs(10))
                 .await
-                .map_err(|err| MegaphoneError::InternalError(format!("Error writing channel - {err}")))
+                .map_err(|err| {
+                    match err {
+                        SendTimeoutError::Timeout(_) => MegaphoneError::Timeout { secs: 10 },
+                        SendTimeoutError::Closed(_) => MegaphoneError::InternalError(String::from("Channel is closed")),
+                    }
+                })
         }
     }
 

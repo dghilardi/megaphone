@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 use crate::core::config::MegaphoneConfig;
 use crate::dto::agent::{BasicOutcomeDto, OutcomeStatus};
 
-use crate::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateResDto, ChannelInfoDto, ChannelsListParams};
+use crate::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateResDto, ChannelInfoDto, ChannelsListParams, WriteBatchReqDto, WriteBatchResDto};
 use crate::dto::error::ErrorDto;
 use crate::dto::message::EventDto;
 use crate::service::megaphone_service::MegaphoneService;
@@ -62,6 +62,20 @@ pub async fn write_handler(
     svc.write_into_channel(&channel_id, EventDto::new(stream_id, body)).await?;
     Ok((StatusCode::CREATED, Json(BasicOutcomeDto {
         status: OutcomeStatus::Ok,
+    })))
+}
+
+pub async fn write_batch_handler(
+    State(svc): State<MegaphoneService<EventDto>>,
+    Json(body): Json<WriteBatchReqDto>,
+) -> Result<(StatusCode, Json<WriteBatchResDto>), (StatusCode, Json<ErrorDto>)> {
+    let messages = body.messages.into_iter()
+        .map(|message| EventDto::new(message.stream_id, message.body))
+        .collect();
+
+    let failures = svc.write_batch_into_channels(&body.channel_ids.into_iter().collect::<Vec<_>>()[..], messages).await;
+    Ok((StatusCode::CREATED, Json(WriteBatchResDto {
+        failures,
     })))
 }
 

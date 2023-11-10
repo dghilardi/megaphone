@@ -11,10 +11,12 @@ pub struct ErrorDto {
 impl From<MegaphoneError> for (StatusCode, Json<ErrorDto>) {
     fn from(err: MegaphoneError) -> Self {
         match err {
-            MegaphoneError::NotFound => (StatusCode::NOT_FOUND, Json(ErrorDto { code: String::from("NOT_FOUND") })),
-            MegaphoneError::Busy => (StatusCode::CONFLICT, Json(ErrorDto { code: String::from("BUSY") })),
-            MegaphoneError::InternalError(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorDto { code: String::from("INTERNAL_SERVER_ERROR") })),
-            MegaphoneError::BadRequest(_) => (StatusCode::BAD_REQUEST, Json(ErrorDto { code: String::from("BAD_REQUEST") })),
+            MegaphoneError::NotFound => (StatusCode::NOT_FOUND, Json(ErrorDto { code: String::from(err.code()) })),
+            MegaphoneError::Busy => (StatusCode::CONFLICT, Json(ErrorDto { code: String::from(err.code()) })),
+            MegaphoneError::InternalError(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorDto { code: String::from(err.code()) })),
+            MegaphoneError::BadRequest(_) => (StatusCode::BAD_REQUEST, Json(ErrorDto { code: String::from(err.code()) })),
+            MegaphoneError::Timeout { .. } => (StatusCode::SERVICE_UNAVAILABLE, Json(ErrorDto { code: String::from(err.code()) })),
+            MegaphoneError::Skipped => (StatusCode::SERVICE_UNAVAILABLE, Json(ErrorDto { code: String::from(err.code()) })),
         }
     }
 }

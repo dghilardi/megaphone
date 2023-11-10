@@ -73,6 +73,7 @@ async fn main() {
 
         .route("/create", post(http::channel::create_handler))
         .route("/write/:channel_id/:stream_id", post(http::channel::write_handler))
+        .route("/write-batch", post(http::channel::write_batch_handler))
         .route("/read/:id", get(http::channel::read_handler))
         .route("/channelsExists", post(http::channel::channel_exists_handler))
         .route("/metrics", get(move || ready(recorder_handle.render())))
