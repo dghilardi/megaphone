@@ -190,6 +190,13 @@ impl<Event> MegaphoneService<Event> {
             .take(limit)
             .collect()
     }
+
+    pub fn count_by_agent(&self, agent: &str) -> usize {
+        let prefix = format!("{agent}.");
+        self.buffer.iter()
+            .filter(|entry| entry.key().starts_with(&prefix))
+            .count()
+    }
 }
 
 pub trait WithTimestamp {

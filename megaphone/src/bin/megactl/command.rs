@@ -49,9 +49,9 @@ where S: Serialize {
 
 impl PrintFormat<PlainFormat> for Vec<VirtualAgentItemDto> {
     fn print(&self) {
-        println!("{0: <16} | {1: <6} | {2: <10}", "NAME", "MODE", "SINCE");
+        println!("{0: <16} | {1: <6} | {2: <33} | {3: <10}", "NAME", "MODE", "SINCE", "CHANNELS");
         for item in self {
-            println!("{0: <16} | {1: <10?} | {2: <10}", item.name, item.mode, item.since);
+            println!("{0: <16} | {1: <10?} | {2: <33} | {3: <10}", item.name, item.mode, item.since, item.channels_count);
         }
     }
 }

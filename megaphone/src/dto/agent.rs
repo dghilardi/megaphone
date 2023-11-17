@@ -6,11 +6,13 @@ use serde::{Deserialize, Serialize};
 use crate::service::agents_manager_service::VirtualAgentStatus;
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct VirtualAgentItemDto {
     pub name: String,
     pub since: DateTime<Utc>,
     pub warming_up: bool,
     pub mode: VirtualAgentModeDto,
+    pub channels_count: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

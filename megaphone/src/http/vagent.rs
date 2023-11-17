@@ -18,14 +18,16 @@ use crate::service::megaphone_service::MegaphoneService;
 
 pub async fn list_virtual_agents(
     State(svc): State<AgentsManagerService>,
+    State(channels_mgr): State<MegaphoneService<EventDto>>,
 ) -> impl IntoResponse {
     let agents = svc.list_agents()
         .into_iter()
         .map(|(name, props)| VirtualAgentItemDto {
-            name,
             since: props.change_ts().into(),
             warming_up: props.is_warming_up(),
             mode: VirtualAgentModeDto::from(props.status()),
+            channels_count: channels_mgr.count_by_agent(&name),
+            name,
         })
         .collect::<Vec<_>>();
     Json(agents)
