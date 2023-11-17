@@ -1,6 +1,6 @@
 [package]
 name = "megaphone-operator"
-version = "0.8.8"
+version = "0.8.9"
 edition = "2021"
 
 authors = ["Davide Ghilardi <dghila@d71.dev>"]
