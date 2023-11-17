@@ -21,6 +21,7 @@ mod service;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    env_logger::init();
     let kubernetes_client = Client::try_default().await?;
     
     let context = Arc::new(ContextData {

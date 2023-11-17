@@ -297,7 +297,12 @@ impl MegaphoneReconciler {
         let pod_name = pod.metadata.name.as_ref()
             .ok_or_else(|| Error::InternalError(String::from("Cannot read pod name")))?;
 
-        if pod.metadata.labels.as_ref().and_then(|labels| labels.get(LABEL_ACCEPTS_NEW_CHANNELS)).map(|value| value.eq(LABEL_VALUE_ON)).unwrap_or(false) {
+        let accepts_new_channels = pod.metadata.labels.as_ref()
+            .and_then(|labels| labels.get(LABEL_ACCEPTS_NEW_CHANNELS))
+            .map(|value| value.eq(LABEL_VALUE_ON))
+            .unwrap_or(false);
+
+        if accepts_new_channels {
             let update_labels = ObjectMeta {
                 labels: Some(
                     [(String::from(LABEL_ACCEPTS_NEW_CHANNELS), String::from(LABEL_VALUE_OFF))]
@@ -314,7 +319,9 @@ impl MegaphoneReconciler {
         }
 
         let pipe_urls = other_nodes_urls.into_iter().map(|s| s.to_string()).collect::<HashSet<String>>();
-        if !pipe_urls.is_empty() {
+        if pipe_urls.is_empty() {
+            log::warn!("Pipe urls collection is empty");
+        } else {
             let megactl = self.megactl();
             let pod_agents = megactl.list_agents(pod_name).await
                 .map_err(|err| Error::InternalError(format!("Cannot list agents for pod {pod_name} - {err}")))?;
@@ -326,11 +333,11 @@ impl MegaphoneReconciler {
                         let pipe_url = pipe_urls.iter().choose(&mut rand::thread_rng()).expect("Error selecting url");
                         let out = megactl.pipe_agent(pod_name, &agent.name, pipe_url).await;
                         match out {
-                            Ok(_) => println!("Agent {} piped to {pipe_url}", agent.name),
-                            Err(err) => eprintln!("Error piping agent - {err}"),
+                            Ok(_) => log::info!("Agent {} piped to {pipe_url}", agent.name),
+                            Err(err) => log::warn!("Error piping agent - {err}"),
                         }
                     }
-                    VirtualAgentModeDto::Piped => {}
+                    VirtualAgentModeDto::Piped => log::debug!("Agent {} is already in piped mode", agent.name)
                 }
             }
         }
@@ -387,14 +394,17 @@ impl MegaphoneReconciler {
         let connection_labels_regex = Regex::new(CONNECTION_LABELS_REGEX).unwrap();
         for pod in pods_status.get(&MegaphonePodStatus::TearingDown).map(|v| &v[..]).unwrap_or_default() {
             let Some(labels) = &pod.metadata.labels else {
+                log::warn!("Labels not found for pod {}", pod.metadata.name.as_ref().map(|s| s.as_str()).unwrap_or("-"));
                 continue;
             };
-            let completely_disconnected = labels.iter()
+            let alive_virtual_agents = labels.iter()
                 .filter(|(k, _)| connection_labels_regex.is_match(k))
-                .all(|(_k, v)| v.eq(LABEL_VALUE_OFF));
+                .filter(|(_k, v)| (*v).eq(LABEL_VALUE_ON))
+                .collect::<Vec<_>>();
 
-            if completely_disconnected {
+            if alive_virtual_agents.is_empty() {
                 let Some(pod_name) = &pod.metadata.name else {
+                    log::warn!("Cannot read pod name");
                     continue;
                 };
                 println!("All connection labels are off for pod {pod_name}");
@@ -402,11 +412,16 @@ impl MegaphoneReconciler {
                     .map_err(Error::PodDeletionFailed)?;
 
                 deleted_pods.insert(pod_name.to_string());
+            } else {
+                for (agent_name, _) in alive_virtual_agents {
+                    log::debug!("Virtual agent {} is still alive", agent_name)
+                }
             }
         }
 
         if let Some(tearing_down_pods) = pods_status.get_mut(&MegaphonePodStatus::TearingDown) {
-            tearing_down_pods.retain(|pod| !pod.metadata.name.as_ref().map(|name| deleted_pods.contains(name)).unwrap_or(false));
+            tearing_down_pods
+                .retain(|pod| !pod.metadata.name.as_ref().map(|name| deleted_pods.contains(name)).unwrap_or(false));
         }
 
         let total_pods_count = pods_status.values().map(|v| v.len()).sum::<usize>();
@@ -437,17 +452,27 @@ impl MegaphoneReconciler {
             ]
                 .into_iter()
                 .flatten()
-                .take(total_pods_count- self.megaphone.spec.replicas);
+                .take(total_pods_count - self.megaphone.spec.replicas);
 
             for pod in to_delete {
                 self.tear_down_pod(pod, Vec::<String>::new()).await?;
             }
         }
 
+        let fully_operational_count = pods_status.iter()
+            .filter(|(status, _)| matches!(status, MegaphonePodStatus::Active | MegaphonePodStatus::QueuedForTearDown))
+            .map(|(_, pods)| pods.len())
+            .sum::<usize>();
+
+        let to_delete_count = if fully_operational_count + max_surge < self.megaphone.spec.replicas {
+            0
+        } else {
+            fully_operational_count + max_surge - self.megaphone.spec.replicas
+        };
+
         let tear_down_list = pods_status.get(&MegaphonePodStatus::TearingDown)
             .map(|v| &v[..])
-            .or_else(|| pods_status.get(&MegaphonePodStatus::QueuedForTearDown).map(|v| &v[0..max_surge]));
-
+            .or_else(|| pods_status.get(&MegaphonePodStatus::QueuedForTearDown).map(|v| &v[0..to_delete_count]));
 
         let pipe_targets = pods_status.get(&MegaphonePodStatus::Active)
             .or_else(|| pods_status.get(&MegaphonePodStatus::QueuedForTearDown))
@@ -458,6 +483,7 @@ impl MegaphoneReconciler {
             .collect::<Vec<_>>();
 
         for pod in tear_down_list.unwrap_or_default() {
+            log::debug!("Tearing down pod {}", pod.metadata.name.as_ref().map(|s| s.as_str()).unwrap_or("-"));
             let out = self.tear_down_pod(pod, pipe_targets.iter()).await;
             if let Err(err) = out {
                 eprintln!("Error tearing down pod - {err}");
@@ -514,6 +540,9 @@ impl MegaphoneReconciler {
             Ok(_) => new_services.push(cluster_svc.name),
             Err(e) => println!("Service Creation Failed {:?}", e),
         }
+        new_pods.sort();
+        new_services.sort();
+
         let status = MegaphoneStatus {
             pods: new_pods,
             services: new_services,
@@ -521,16 +550,18 @@ impl MegaphoneReconciler {
             upgrade_spec: None,
         };
 
-        let update_status = json!({
-            "status": status
-        });
+        if self.megaphone.status.as_ref().map(|old_status| (*old_status).ne(&status)).unwrap_or(true) {
+            let update_status = json!({
+                "status": status
+            });
 
-        let res = workloads_api
-            .patch_status(self.cluster_name(), &PatchParams::default(), &Patch::Merge(&update_status))
-            .await;
+            let res = workloads_api
+                .patch_status(self.cluster_name(), &PatchParams::default(), &Patch::Merge(&update_status))
+                .await;
 
-        if let Err(err) = res {
-            println!("Pod Creation Failed {:?}", err);
+            if let Err(err) = res {
+                println!("Pod Creation Failed {:?}", err);
+            }
         }
 
         finalizer(&workloads_api, WORKLOAD_FINALIZER, self.megaphone.clone(), |event| async {
