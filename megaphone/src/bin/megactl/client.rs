@@ -87,7 +87,7 @@ impl <C, B> SimpleRest<C, B>
 
     async fn extract_error_message(res: Response<Body>) -> String {
         match hyper::body::to_bytes(res.into_body()).await.map(|bytes| serde_json::from_slice::<ErrorDto>(bytes.as_ref())) {
-            Ok(Ok(err_dto)) => format!("Megaphone error - {}", err_dto.code),
+            Ok(Ok(err_dto)) => format!("Megaphone error - [{}] {}", err_dto.code, err_dto.message),
             Ok(Err(err)) => format!("Deserialization error - {err}"),
             Err(err) => format!("Error extracting response body - {err}"),
         }
