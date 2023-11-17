@@ -20,11 +20,12 @@ pub async fn list_virtual_agents(
     State(svc): State<AgentsManagerService>,
 ) -> impl IntoResponse {
     let agents = svc.list_agents()
-        .map(|entry| VirtualAgentItemDto {
-            name: entry.key().to_string(),
-            since: entry.value().change_ts().into(),
-            warming_up: entry.value().is_warming_up(),
-            mode: VirtualAgentModeDto::from(entry.value().status()),
+        .into_iter()
+        .map(|(name, props)| VirtualAgentItemDto {
+            name,
+            since: props.change_ts().into(),
+            warming_up: props.is_warming_up(),
+            mode: VirtualAgentModeDto::from(props.status()),
         })
         .collect::<Vec<_>>();
     Json(agents)

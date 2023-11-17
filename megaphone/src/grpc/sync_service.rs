@@ -40,8 +40,8 @@ impl SyncService for MegaphoneSyncService {
                 Ok(SyncRequest { sync_event: Some(SyncEvent::PipeAgentStart(req)) }) => {
                     if piped_agents.contains(&req.agent_id) {
                         log::warn!("agent-id {} is already piped by this session", req.agent_id);
-                    } else if let Some(agent) = self.agent_mgr.list_agents().find(|agent| agent.key().eq(&req.agent_id)) {
-                        log::warn!("agent-id {} is already registered: {:?}", &agent.key(), agent.value())
+                    } else if let Some((name, props)) = self.agent_mgr.find_agent(&req.agent_id) {
+                        log::warn!("agent-id {name} is already registered: {props:?}")
                     } else {
                         let out = self.agent_mgr.open_replica_session(&req.agent_id);
                         if let Err(err) = out {
@@ -54,7 +54,7 @@ impl SyncService for MegaphoneSyncService {
                 Ok(SyncRequest { sync_event: Some(SyncEvent::PipeAgentEnd(req)) }) => {
                     if !piped_agents.remove(&req.agent_id) {
                         log::warn!("agent-id {} was not piped by this session", req.agent_id);
-                    } else if let Some(agent) = self.agent_mgr.list_agents().find(|agent| agent.key().eq(&req.agent_id)) {
+                    } else if let Some((_name, _props)) = self.agent_mgr.find_agent(&req.agent_id) {
                         let out = self.agent_mgr.close_replica_session(&req.agent_id);
                         if let Err(err) = out {
                             log::error!("Error closing pipe session - {err}");

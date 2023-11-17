@@ -15,7 +15,7 @@ use crate::dto::message::EventDto;
 
 pub const WARMUP_SECS: u64 = 60;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VirtualAgentProps {
     change_ts: SystemTime,
     status: VirtualAgentStatus,
@@ -114,8 +114,17 @@ impl AgentsManagerService {
             .ok_or(MegaphoneError::InternalError(String::from("No virtual agent with master status was found")))
     }
 
-    pub fn list_agents(&self) -> impl Iterator<Item=RefMulti<String, VirtualAgentProps, RandomState>> {
+    pub fn list_agents(&self) -> Vec<(String, VirtualAgentProps)> {
+        self.virtual_agents
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect()
+    }
+
+    pub fn find_agent(&self, name: &str) -> Option<(String, VirtualAgentProps)> {
         self.virtual_agents.iter()
+            .find(|entry| entry.key().eq(name))
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
     }
 
     pub fn add_master(&self, name: &str) -> Result<(), MegaphoneError> {
