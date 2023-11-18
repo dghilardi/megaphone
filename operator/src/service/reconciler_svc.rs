@@ -390,14 +390,26 @@ impl MegaphoneReconciler {
                     log::debug!("Removing service {name}");
                     service_api.delete(name, &DeleteParams::default()).await
                         .map_err(|err| Error::InternalError(format!("Error deleting svc {name} - {err}")))?;
-                } else {
-                    log::debug!("Keeping service {name}");
                 }
             } else {
                 log::warn!("Cannot determine svc name");
             }
         }
         Ok(())
+    }
+
+    fn compute_pipe_targets(&self, pods_status: &HashMap<MegaphonePodStatus, Vec<Pod>>, tear_down_list: &[&Pod]) -> Vec<String> {
+        pods_status.get(&MegaphonePodStatus::Active)
+            .or_else(|| pods_status.get(&MegaphonePodStatus::QueuedForTearDown))
+            .map(|v| v.iter()
+                .flat_map(|pod| pod.metadata.name.as_ref())
+                .filter(|name| tear_down_list.iter().all(|pod| pod.metadata.name.as_ref().map(|n| n.ne(*name)).unwrap_or(true)))
+                .collect::<Vec<_>>()
+            )
+            .unwrap_or_default()
+            .into_iter()
+            .map(|pod_name| format!("http://{pod_name}.{}.svc.cluster.local:3001", self.cluster_namespace()))
+            .collect::<Vec<_>>()
     }
 
     pub async fn reconcile(self) -> Result<Action, Error> {
@@ -453,8 +465,23 @@ impl MegaphoneReconciler {
             }
         }
 
+        for pod in pods_status.get(&MegaphonePodStatus::QueuedForAbort).map(|v| &v[..]).unwrap_or_default() {
+            let Some(pod_name) = &pod.metadata.name else {
+                log::warn!("Cannot read pod name");
+                continue;
+            };
+            pods_api.delete(pod_name, &DeleteParams::default()).await
+                .map_err(Error::PodDeletionFailed)?;
+
+            deleted_pods.insert(pod_name.to_string());
+        }
+
         if let Some(tearing_down_pods) = pods_status.get_mut(&MegaphonePodStatus::TearingDown) {
             tearing_down_pods
+                .retain(|pod| !pod.metadata.name.as_ref().map(|name| deleted_pods.contains(name)).unwrap_or(false));
+        }
+        if let Some(aborting_pods) = pods_status.get_mut(&MegaphonePodStatus::QueuedForAbort) {
+            aborting_pods
                 .retain(|pod| !pod.metadata.name.as_ref().map(|name| deleted_pods.contains(name)).unwrap_or(false));
         }
 
@@ -479,18 +506,6 @@ impl MegaphoneReconciler {
                     Err(e) => log::warn!("Pod Creation Failed {:?}", e),
                 }
             }
-        } else if total_pods_count > self.megaphone.spec.replicas {
-            let to_delete = [
-                pods_status.get(&MegaphonePodStatus::WarmingUp).map(|v| &v[..]).unwrap_or_default(),
-                pods_status.get(&MegaphonePodStatus::Active).map(|v| &v[..]).unwrap_or_default(),
-            ]
-                .into_iter()
-                .flatten()
-                .take(total_pods_count - self.megaphone.spec.replicas);
-
-            for pod in to_delete {
-                self.tear_down_pod(pod, Vec::<String>::new()).await?;
-            }
         }
 
         let fully_operational_count = pods_status.iter()
@@ -506,22 +521,18 @@ impl MegaphoneReconciler {
 
         let tear_down_list = pods_status.get(&MegaphonePodStatus::TearingDown)
             .map(|v| &v[..])
-            .or_else(|| pods_status.get(&MegaphonePodStatus::QueuedForTearDown).map(|v| &v[0..to_delete_count]))
-            .unwrap_or_default();
-
-        let pipe_targets = pods_status.get(&MegaphonePodStatus::Active)
-            .or_else(|| pods_status.get(&MegaphonePodStatus::QueuedForTearDown))
-            .map(|v| v.iter()
-                .flat_map(|pod| pod.metadata.name.as_ref())
-                .filter(|name| tear_down_list.iter().all(|pod| pod.metadata.name.as_ref().map(|n| n.ne(*name)).unwrap_or(true)))
-                .collect::<Vec<_>>()
-            )
             .unwrap_or_default()
             .into_iter()
-            .map(|pod_name| format!("http://{pod_name}.{}.svc.cluster.local:3001", self.cluster_namespace()))
+            .chain([
+                pods_status.get(&MegaphonePodStatus::QueuedForTearDown).map(|v| &v[..]).unwrap_or_default(),
+                pods_status.get(&MegaphonePodStatus::QueuedForAbort).map(|v| &v[..]).unwrap_or_default(),
+            ].into_iter().flatten().take(to_delete_count))
+            .map(Clone::clone)
             .collect::<Vec<_>>();
 
-        for pod in tear_down_list {
+        let pipe_targets = self.compute_pipe_targets(&pods_status, &tear_down_list.iter().collect::<Vec<_>>());
+
+        for pod in &tear_down_list {
             log::debug!("Tearing down pod {}", pod.metadata.name.as_ref().map(|s| s.as_str()).unwrap_or("-"));
             let out = self.tear_down_pod(pod, pipe_targets.iter()).await;
             if let Err(err) = out {
@@ -627,7 +638,7 @@ impl MegaphoneReconciler {
     async fn determine_cluster_status(&self) -> Result<HashMap<MegaphonePodStatus, Vec<Pod>>, Error> {
         let pods_api = self.pods();
         let params = ListParams::default().labels(&format!("{LABEL_CLUSTER_NAME}={}", self.cluster_name()));
-        let pods = pods_api.list(&params).await
+        let mut pods = pods_api.list(&params).await
             .map_err(|err| Error::MissingObjectKey("Cannot find cluster pods"))?
             .into_iter()
             .map(|pod| (self.determine_pod_status(&pod), pod))
@@ -638,6 +649,51 @@ impl MegaphoneReconciler {
                     .push(pod);
                 acc
             });
+
+        pods.values_mut()
+            .for_each(|v| v.sort_by_key(|pod| pod.metadata.name.as_ref().map(String::from)));
+
+        let alive_count = pods.iter()
+            .filter(|(status, _)| matches!(status, MegaphonePodStatus::Active | MegaphonePodStatus::WarmingUp))
+            .flat_map(|(_, pods)| pods.iter())
+            .count();
+
+        if alive_count > self.megaphone.spec.replicas {
+            let pod_names_to_terminate = [
+                pods.get(&MegaphonePodStatus::WarmingUp).map(|v| &v[..]).unwrap_or_default(),
+                pods.get(&MegaphonePodStatus::Active).map(|v| &v[..]).unwrap_or_default(),
+            ]
+                .into_iter()
+                .flatten()
+                .flat_map(|pod| pod.metadata.name.iter())
+                .map(String::from)
+                .take(alive_count - self.megaphone.spec.replicas)
+                .collect::<Vec<_>>();
+
+            for pod_name in pod_names_to_terminate {
+                for (src_status, dst_status) in [(MegaphonePodStatus::Active, MegaphonePodStatus::QueuedForTearDown), (MegaphonePodStatus::WarmingUp, MegaphonePodStatus::QueuedForAbort)] {
+                    let pod = if let Some(pods_in_status) = pods.get_mut(&src_status) {
+                        let maybe_idx = pods_in_status.iter()
+                            .enumerate()
+                            .find(|(_idx, pod)| pod.metadata.name.as_ref().map(|name| name.eq(&pod_name)).unwrap_or(false))
+                            .map(|(idx, _)| idx);
+                        if let Some(idx) = maybe_idx {
+                            Some(pods_in_status.remove(idx))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some(pod) = pod {
+                        pods.entry(dst_status)
+                            .or_insert_with(Vec::new)
+                            .push(pod);
+                    }
+                }
+            }
+        }
 
         Ok(pods)
     }
@@ -665,4 +721,5 @@ enum MegaphonePodStatus {
     WarmingUp,
     TearingDown,
     QueuedForTearDown,
+    QueuedForAbort,
 }
