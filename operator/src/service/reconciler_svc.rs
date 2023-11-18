@@ -269,14 +269,18 @@ impl MegaphoneReconciler {
             .into_iter()
             .flat_map(|virtual_agent| [
                 (format!("megaphone-{}-write", virtual_agent.name), match virtual_agent.mode {
+                    VirtualAgentModeDto::Master if terminating && virtual_agent.channels_count == 0 => String::from(LABEL_VALUE_OFF),
                     VirtualAgentModeDto::Master => String::from(LABEL_VALUE_ON),
+                    VirtualAgentModeDto::Replica if terminating && virtual_agent.channels_count == 0 => String::from(LABEL_VALUE_OFF),
                     VirtualAgentModeDto::Replica if virtual_agent.since + Duration::from_secs(50) < Utc::now() => String::from(LABEL_VALUE_ON),
                     VirtualAgentModeDto::Replica => String::from(LABEL_VALUE_OFF),
                     VirtualAgentModeDto::Piped if virtual_agent.since + Duration::from_secs(60) < Utc::now() => String::from(LABEL_VALUE_OFF),
                     VirtualAgentModeDto::Piped => String::from(LABEL_VALUE_ON),
                 }),
                 (format!("megaphone-{}-read", virtual_agent.name), match virtual_agent.mode {
+                    VirtualAgentModeDto::Master if terminating && virtual_agent.channels_count == 0 => String::from(LABEL_VALUE_OFF),
                     VirtualAgentModeDto::Master => String::from(LABEL_VALUE_ON),
+                    VirtualAgentModeDto::Replica if terminating && virtual_agent.channels_count == 0 => String::from(LABEL_VALUE_OFF),
                     VirtualAgentModeDto::Replica if virtual_agent.since + Duration::from_secs(30) < Utc::now() => String::from(LABEL_VALUE_ON),
                     VirtualAgentModeDto::Replica => String::from(LABEL_VALUE_OFF),
                     VirtualAgentModeDto::Piped if virtual_agent.since + Duration::from_secs(40) < Utc::now() => String::from(LABEL_VALUE_OFF),
@@ -330,11 +334,15 @@ impl MegaphoneReconciler {
                 match agent.mode {
                     VirtualAgentModeDto::Master |
                     VirtualAgentModeDto::Replica => {
-                        let pipe_url = pipe_urls.iter().choose(&mut rand::thread_rng()).expect("Error selecting url");
-                        let out = megactl.pipe_agent(pod_name, &agent.name, pipe_url).await;
-                        match out {
-                            Ok(_) => log::info!("Agent {} piped to {pipe_url}", agent.name),
-                            Err(err) => log::warn!("Error piping agent - {err}"),
+                        if agent.channels_count > 0 {
+                            let pipe_url = pipe_urls.iter().choose(&mut rand::thread_rng()).expect("Error selecting url");
+                            let out = megactl.pipe_agent(pod_name, &agent.name, pipe_url).await;
+                            match out {
+                                Ok(_) => log::info!("Agent {} piped to {pipe_url}", agent.name),
+                                Err(err) => log::warn!("Error piping agent - {err}"),
+                            }
+                        } else {
+                            log::debug!("Skipping agent piping because it does not have active channels");
                         }
                     }
                     VirtualAgentModeDto::Piped => log::debug!("Agent {} is already in piped mode", agent.name)
@@ -425,7 +433,7 @@ impl MegaphoneReconciler {
         }
 
         let total_pods_count = pods_status.values().map(|v| v.len()).sum::<usize>();
-        let max_surge = 1;
+        let max_surge = 1.max(self.megaphone.spec.replicas / 4);
 
         if total_pods_count < self.megaphone.spec.replicas {
             for i in 0..self.megaphone.spec.replicas - total_pods_count {
@@ -472,17 +480,22 @@ impl MegaphoneReconciler {
 
         let tear_down_list = pods_status.get(&MegaphonePodStatus::TearingDown)
             .map(|v| &v[..])
-            .or_else(|| pods_status.get(&MegaphonePodStatus::QueuedForTearDown).map(|v| &v[0..to_delete_count]));
+            .or_else(|| pods_status.get(&MegaphonePodStatus::QueuedForTearDown).map(|v| &v[0..to_delete_count]))
+            .unwrap_or_default();
 
         let pipe_targets = pods_status.get(&MegaphonePodStatus::Active)
             .or_else(|| pods_status.get(&MegaphonePodStatus::QueuedForTearDown))
-            .map(|v| v.iter().flat_map(|pod| pod.metadata.name.as_ref()).collect::<Vec<_>>())
+            .map(|v| v.iter()
+                .flat_map(|pod| pod.metadata.name.as_ref())
+                .filter(|name| tear_down_list.iter().all(|pod| pod.metadata.name.as_ref().map(|n| n.ne(*name)).unwrap_or(true)))
+                .collect::<Vec<_>>()
+            )
             .unwrap_or_default()
             .into_iter()
             .map(|pod_name| format!("http://{pod_name}.{}.svc.cluster.local:3001", self.cluster_namespace()))
             .collect::<Vec<_>>();
 
-        for pod in tear_down_list.unwrap_or_default() {
+        for pod in tear_down_list {
             log::debug!("Tearing down pod {}", pod.metadata.name.as_ref().map(|s| s.as_str()).unwrap_or("-"));
             let out = self.tear_down_pod(pod, pipe_targets.iter()).await;
             if let Err(err) = out {
@@ -494,7 +507,8 @@ impl MegaphoneReconciler {
         let mut all_pod_names = HashSet::new();
         for (status, pods) in &pods_status {
             for pod in pods {
-                let virtual_agents = self.align_labels(pod, *status).await?;
+                let pod_status = if tear_down_list.contains(pod) { MegaphonePodStatus::TearingDown } else { *status };
+                let virtual_agents = self.align_labels(pod, pod_status).await?;
                 for agent in virtual_agents {
                     all_virtual_agents_ids.insert(agent.name);
                 }
