@@ -28,6 +28,7 @@ use crate::service::megactl_svc::MegactlService;
 pub static WORKLOAD_FINALIZER: &str = "megaphone.d71.dev";
 
 pub static LABEL_CLUSTER_NAME: &str = "megaphone-cluster";
+pub static LABEL_SVC_CLUSTER_NAME: &str = "svc-megaphone-cluster";
 pub static LABEL_NODE_NAME: &str = "megaphone-node";
 pub static LABEL_ACCEPTS_NEW_CHANNELS: &str = "accepts-new-channels";
 
@@ -172,7 +173,7 @@ impl MegaphoneReconciler {
                     namespace: Some(namespace.to_owned()),
                     owner_references: Some(vec![oref]),
                     labels: Some([
-                        (String::from("svc-megaphone-cluster"), cluster_name.to_owned())
+                        (String::from(LABEL_SVC_CLUSTER_NAME), cluster_name.to_owned())
                     ].into_iter().collect()),
                     ..Default::default()
                 },
@@ -207,7 +208,7 @@ impl MegaphoneReconciler {
                     namespace: Some(namespace.to_owned()),
                     owner_references: Some(vec![oref]),
                     labels: Some([
-                        (String::from("svc-megaphone-cluster"), cluster_name.to_owned())
+                        (String::from(LABEL_SVC_CLUSTER_NAME), cluster_name.to_owned())
                     ].into_iter().collect()),
                     ..Default::default()
                 },
@@ -239,7 +240,7 @@ impl MegaphoneReconciler {
                     namespace: Some(self.cluster_namespace().to_owned()),
                     owner_references: Some(vec![self.owner_ref()]),
                     labels: Some([
-                        (String::from("svc-megaphone-cluster"), cluster_name.to_owned())
+                        (String::from(LABEL_SVC_CLUSTER_NAME), cluster_name.to_owned())
                     ].into_iter().collect()),
                     ..Default::default()
                 },
@@ -374,6 +375,31 @@ impl MegaphoneReconciler {
         Ok(pod_agents)
     }
 
+    async fn service_cleanup(&self, required_svc: &[MegaphoneService]) -> Result<(), Error> {
+        let params = ListParams::default().labels(&format!("{LABEL_SVC_CLUSTER_NAME}={}", self.cluster_name()));
+        let service_api = self.services();
+        let current_services = service_api.list(&params).await
+            .map_err(|err| Error::InternalError(format!("Error listing services - {err}")))?;
+        let required_svc_names = required_svc.iter()
+            .map(|svc| svc.name.to_string())
+            .collect::<HashSet<_>>();
+
+        for svc in current_services {
+            if let Some(name) = &svc.metadata.name {
+                if !required_svc_names.contains(name) {
+                    log::debug!("Removing service {name}");
+                    service_api.delete(name, &DeleteParams::default()).await
+                        .map_err(|err| Error::InternalError(format!("Error deleting svc {name} - {err}")))?;
+                } else {
+                    log::debug!("Keeping service {name}");
+                }
+            } else {
+                log::warn!("Cannot determine svc name");
+            }
+        }
+        Ok(())
+    }
+
     pub async fn reconcile(self) -> Result<Action, Error> {
         let current_workloads = self.megaphone
             .status
@@ -394,7 +420,7 @@ impl MegaphoneReconciler {
 
         for (status, pods) in &pods_status {
             for pod in pods {
-                println!("{status:?} - {}", pod.metadata.name.as_ref().map(|s| &s[..]).unwrap_or(""))
+                log::info!("{status:?} - {}", pod.metadata.name.as_ref().map(|s| &s[..]).unwrap_or(""))
             }
         }
 
@@ -415,7 +441,7 @@ impl MegaphoneReconciler {
                     log::warn!("Cannot read pod name");
                     continue;
                 };
-                println!("All connection labels are off for pod {pod_name}");
+                log::info!("All connection labels are off for pod {pod_name}");
                 pods_api.delete(pod_name, &DeleteParams::default()).await
                     .map_err(Error::PodDeletionFailed)?;
 
@@ -450,7 +476,7 @@ impl MegaphoneReconciler {
 
                 match res {
                     Ok(_) => new_pods.push(megaphone_pod.name.clone()),
-                    Err(e) => println!("Pod Creation Failed {:?}", e),
+                    Err(e) => log::warn!("Pod Creation Failed {:?}", e),
                 }
             }
         } else if total_pods_count > self.megaphone.spec.replicas {
@@ -499,25 +525,32 @@ impl MegaphoneReconciler {
             log::debug!("Tearing down pod {}", pod.metadata.name.as_ref().map(|s| s.as_str()).unwrap_or("-"));
             let out = self.tear_down_pod(pod, pipe_targets.iter()).await;
             if let Err(err) = out {
-                eprintln!("Error tearing down pod - {err}");
+                log::warn!("Error tearing down pod - {err}");
             }
         }
 
         let mut all_virtual_agents_ids = HashSet::new();
         let mut all_pod_names = HashSet::new();
-        for (status, pods) in &pods_status {
-            for pod in pods {
+
+        let fut = pods_status.iter()
+            .flat_map(|(status, pods)| pods.iter().map(move |pod| (status, pod)))
+            .map(|(status, pod)| async {
                 let pod_status = if tear_down_list.contains(pod) { MegaphonePodStatus::TearingDown } else { *status };
                 let virtual_agents = self.align_labels(pod, pod_status).await?;
+
+                Ok::<_, Error>((pod.metadata.name.clone(), virtual_agents))
+            });
+
+        futures::future::try_join_all(fut).await?
+            .into_iter()
+            .for_each(|(name, virtual_agents)| {
                 for agent in virtual_agents {
                     all_virtual_agents_ids.insert(agent.name);
                 }
-                if let Some(pod_name) = &pod.metadata.name {
+                if let Some(pod_name) = name {
                     all_pod_names.insert(pod_name.to_string());
                 }
-            }
-        }
-
+            });
 
         let megaphone_agent_services = all_virtual_agents_ids.iter()
             .flat_map(|virtual_agent_id| [
@@ -528,9 +561,10 @@ impl MegaphoneReconciler {
                 all_pod_names.into_iter()
                     .map(|pod_name| self.create_internal_pod_service(&pod_name))
             )
+            .chain([self.create_cluster_service()])
             .collect::<Vec<_>>();
 
-        for megaphone_svc in megaphone_agent_services {
+        for megaphone_svc in &megaphone_agent_services {
             let res = services_api.patch(
                 &megaphone_svc.name,
                 &PatchParams::apply("workload-Controller"),
@@ -538,22 +572,13 @@ impl MegaphoneReconciler {
             ).await;
 
             match res {
-                Ok(_) => new_services.push(megaphone_svc.name),
-                Err(e) => println!("Service Creation Failed {:?}", e),
+                Ok(_) => new_services.push(megaphone_svc.name.clone()),
+                Err(e) => log::warn!("Service Creation Failed {:?}", e),
             }
         }
 
-        let cluster_svc = self.create_cluster_service();
-        let res = services_api.patch(
-            &cluster_svc.name,
-            &PatchParams::apply("workload-Controller"),
-            &Patch::Apply(cluster_svc.spec.clone()),
-        ).await;
+        self.service_cleanup(&megaphone_agent_services).await?;
 
-        match res {
-            Ok(_) => new_services.push(cluster_svc.name),
-            Err(e) => println!("Service Creation Failed {:?}", e),
-        }
         new_pods.sort();
         new_services.sort();
 
@@ -574,14 +599,14 @@ impl MegaphoneReconciler {
                 .await;
 
             if let Err(err) = res {
-                println!("Pod Creation Failed {:?}", err);
+                log::warn!("Pod Creation Failed {:?}", err);
             }
         }
 
         finalizer(&workloads_api, WORKLOAD_FINALIZER, self.megaphone.clone(), |event| async {
             match event {
                 Finalizer::Cleanup(workload) => {
-                    println!("Finalizing Workload: {} ...!", workload.meta().name.clone().unwrap());
+                    log::info!("Finalizing Workload: {} ...!", workload.meta().name.clone().unwrap());
                     Ok(Action::await_change())
                 }
                 _ => Ok(Action::await_change()),
