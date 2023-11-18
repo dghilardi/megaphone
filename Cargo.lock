@@ -1235,7 +1235,7 @@ checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
 name = "megaphone"
-version = "0.8.9"
+version = "0.8.10"
 dependencies = [
  "anyhow",
  "axum",
@@ -1265,7 +1265,7 @@ dependencies = [
 
 [[package]]
 name = "megaphone-operator"
-version = "0.8.9"
+version = "0.8.10"
 dependencies = [
  "anyhow",
  "env_logger",
