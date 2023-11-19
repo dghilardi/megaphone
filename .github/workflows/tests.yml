@@ -22,5 +22,12 @@ jobs:
       with:
         tool: protoc@${{ env.PROTOC_VERSION }}
 
+
+    - name: Install minimal nightly
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+
     - name: Run tests
       run: cargo test --verbose
