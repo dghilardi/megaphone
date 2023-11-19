@@ -23,7 +23,7 @@ jobs:
         tool: protoc@${{ env.PROTOC_VERSION }}
 
 
-    - name: Install minimal nightly
+    - name: Install minimal stable
       uses: actions-rs/toolchain@v1
       with:
         profile: minimal
