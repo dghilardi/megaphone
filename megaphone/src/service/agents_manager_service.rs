@@ -43,7 +43,7 @@ impl VirtualAgentProps {
     }
 
     pub fn is_warming_up(&self) -> bool {
-        match self.status {
+        match self.status() {
             VirtualAgentStatus::Master => self.change_ts.add(Duration::from_secs(WARMUP_SECS)).gt(&SystemTime::now()),
             VirtualAgentStatus::Replica { .. } => false,
             VirtualAgentStatus::Piped { .. } => false,
@@ -137,7 +137,7 @@ impl AgentsManagerService {
         let entry = self.virtual_agents.entry(String::from(name))
             .or_insert_with(|| VirtualAgentProps::new(VirtualAgentStatus::Replica { pipe_sessions_count: 0 }));
 
-        let VirtualAgentStatus::Replica { mut pipe_sessions_count } = entry.status else {
+        let VirtualAgentStatus::Replica { mut pipe_sessions_count } = entry.status() else {
             return Err(MegaphoneError::InternalError(format!("{name} agent is already registered but is not a replica")));
         };
         pipe_sessions_count += 1;
@@ -149,7 +149,7 @@ impl AgentsManagerService {
         let Some(entry) = self.virtual_agents.get(name) else {
             return Err(MegaphoneError::InternalError(format!("{name} agent is not registered")));
         };
-        let VirtualAgentStatus::Replica { mut pipe_sessions_count } = entry.status else {
+        let VirtualAgentStatus::Replica { mut pipe_sessions_count } = entry.status() else {
             return Err(MegaphoneError::InternalError(format!("{name} agent is already registered but is not a replica")));
         };
         pipe_sessions_count -= 1;
@@ -160,7 +160,7 @@ impl AgentsManagerService {
         let Some(agent) = self.virtual_agents.get(name) else {
             return Err(MegaphoneError::InternalError(format!("Agent {name} is not registered")));
         };
-        match agent.status {
+        match agent.status() {
             VirtualAgentStatus::Master => Ok(false),
             VirtualAgentStatus::Replica { pipe_sessions_count: 0 } => Ok(false),
             VirtualAgentStatus::Replica { .. } => Ok(true),
@@ -170,7 +170,7 @@ impl AgentsManagerService {
 
     pub fn get_pipes(&self, name: &str) -> Vec<mpsc::Sender<SyncEvent>> {
         self.virtual_agents.get(name)
-            .and_then(|agent| if let VirtualAgentStatus::Piped { pipes } = &agent.status { Some(pipes.clone()) } else { None })
+            .and_then(|agent| if let VirtualAgentStatus::Piped { pipes } = &agent.status() { Some(pipes.clone()) } else { None })
             .unwrap_or_default()
     }
 
@@ -181,12 +181,14 @@ impl AgentsManagerService {
         let Ok(()) = pipe.try_send(SyncEvent::PipeAgentStart { name: name.to_string() }) else {
             return Err(MegaphoneError::InternalError(format!("Error sending pipe registration event for agent {name}")))
         };
-        agent.status = match &agent.status {
+
+        let new_status = match agent.status() {
             VirtualAgentStatus::Master => VirtualAgentStatus::Piped { pipes: vec![pipe] },
             VirtualAgentStatus::Piped { pipes } => VirtualAgentStatus::Piped { pipes: pipes.clone().into_iter().chain([pipe]).collect() },
             VirtualAgentStatus::Replica { pipe_sessions_count: 0 } => VirtualAgentStatus::Piped { pipes: vec![pipe] },
             VirtualAgentStatus::Replica { .. } => return Err(MegaphoneError::BadRequest(format!("Cannot pipe agent because it is already a replica"))),
         };
+        agent.change_status(new_status);
         Ok(())
     }
 }
