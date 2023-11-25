@@ -3,7 +3,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use clap::builder::TypedValueParser;
 use dashmap::DashMap;
 use futures::FutureExt;
 use metrics::{histogram, increment_counter};
