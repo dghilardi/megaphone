@@ -1,12 +1,14 @@
 use std::cmp;
 use std::collections::HashSet;
+
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::StreamExt;
 use prost_types::Timestamp;
 use tonic::{Request, Response, Status, Streaming};
-use crate::core::error::MegaphoneError;
-use crate::dto::message::EventDto;
 
+use megaphone::dto::message::EventDto;
+
+use crate::core::error::MegaphoneError;
 use crate::grpc::server::megaphone::{EventReceived, SyncReply, SyncRequest};
 use crate::grpc::server::megaphone::sync_request::SyncEvent;
 use crate::grpc::server::megaphone::sync_service_server::SyncService;

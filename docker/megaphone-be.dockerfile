@@ -15,12 +15,12 @@ COPY megaphone/Cargo.toml megaphone/build.rs Cargo.lock /app/
 COPY megaphone/proto /app/proto
 COPY megaphone/src /app/src
 
-RUN cargo build --release
+RUN cargo build --all-features --release
 
 FROM debian:bookworm-slim as dist
 
 WORKDIR /app
-COPY --from=build /app/target/release/megaphone /app/megaphone
+COPY --from=build /app/target/release/server /app/megaphone
 COPY --from=build /app/target/release/megactl /app/megactl
 
 CMD ["/app/megaphone"]

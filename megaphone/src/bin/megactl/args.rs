@@ -1,6 +1,7 @@
-use std::net::SocketAddr;
 use std::path::PathBuf;
+
 use clap::{Args, Parser, Subcommand, ValueEnum};
+
 use megaphone::dto::agent::{AddVirtualAgentReqDto, PipeVirtualAgentReqDto};
 
 /// Cli interface to port-plumber

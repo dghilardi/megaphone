@@ -1,10 +1,12 @@
+use std::error::Error as StdError;
+
+use anyhow::{bail, Context};
 use hyper::{Body, Method, Request, Response, Uri};
 use hyper::body::{Bytes, HttpBody};
 use hyper::client::connect::Connect;
-use std::error::Error as StdError;
-use anyhow::{bail, Context};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+
 use megaphone::dto::error::ErrorDto;
 
 pub struct SimpleRest<C, B = Body> {

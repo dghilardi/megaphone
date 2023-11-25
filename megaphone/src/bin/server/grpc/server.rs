@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use prost_types::Timestamp;
-use tonic::{transport::Server, Request, Response, Status};
+
 use crate::grpc::server::megaphone::SyncRequest;
 use crate::service::agents_manager_service::SyncEvent;
 

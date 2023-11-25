@@ -1,9 +1,7 @@
-use std::time::SystemTime;
 use chrono::{DateTime, Utc};
-use rand::{random, Rng};
+use rand::Rng;
 use rand::distributions::Alphanumeric;
-use serde::{Serialize, Deserialize};
-use crate::service::megaphone_service::WithTimestamp;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EventDto {
@@ -31,11 +29,5 @@ impl EventDto {
             timestamp: Utc::now(),
             body,
         }
-    }
-}
-
-impl WithTimestamp for EventDto {
-    fn timestamp(&self) -> SystemTime {
-        self.timestamp.into()
     }
 }

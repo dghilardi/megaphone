@@ -1,7 +1,10 @@
 use std::future::Future;
+
 use serde::Serialize;
 use serde_json::json;
+
 use megaphone::dto::agent::{BasicOutcomeDto, VirtualAgentItemDto};
+
 use crate::args::OutFormat;
 
 pub async fn execute_command<Cmd, FutRes, Res>(out_format: OutFormat, command: Cmd)

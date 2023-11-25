@@ -1,9 +1,5 @@
-use std::net::SocketAddr;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-
-use crate::service::agents_manager_service::VirtualAgentStatus;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -23,15 +19,7 @@ pub enum VirtualAgentModeDto {
     Piped,
 }
 
-impl From<&VirtualAgentStatus> for VirtualAgentModeDto {
-    fn from(value: &VirtualAgentStatus) -> Self {
-        match value {
-            VirtualAgentStatus::Master => Self::Master,
-            VirtualAgentStatus::Replica { .. } => Self::Replica,
-            VirtualAgentStatus::Piped { .. } => Self::Piped,
-        }
-    }
-}
+
 
 #[derive(Serialize, Deserialize)]
 pub struct AddVirtualAgentReqDto {

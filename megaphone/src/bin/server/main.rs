@@ -14,8 +14,9 @@ use hyperlocal::{SocketIncoming, UnixServerExt};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use tokio::try_join;
 
+use megaphone::dto::message::EventDto;
+
 use crate::core::config::{compose_config, MegaphoneConfig};
-use crate::dto::message::EventDto;
 use crate::grpc::server::megaphone::sync_service_server::SyncServiceServer;
 use crate::grpc::sync_service::MegaphoneSyncService;
 use crate::service::agents_manager_service::AgentsManagerService;
@@ -23,7 +24,6 @@ use crate::service::megaphone_service::{CHANNEL_DURATION_METRIC_NAME, MegaphoneS
 use crate::state::MegaphoneState;
 
 pub mod service;
-mod dto;
 mod core;
 mod http;
 mod state;

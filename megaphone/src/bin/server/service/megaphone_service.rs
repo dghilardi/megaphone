@@ -1,10 +1,11 @@
 use std::ops::Add;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use clap::builder::TypedValueParser;
 
+use clap::builder::TypedValueParser;
 use dashmap::DashMap;
-use dashmap::mapref::multiple::RefMulti;
+use futures::FutureExt;
 use metrics::{histogram, increment_counter};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
@@ -12,11 +13,11 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::mpsc::error::{SendTimeoutError, TrySendError};
 use tokio::sync::Mutex;
 use tokio::time::Instant;
-use futures::FutureExt;
+
+use megaphone::dto::channel::MessageDeliveryFailure;
+use megaphone::dto::message::EventDto;
 
 use crate::core::error::MegaphoneError;
-use crate::dto::channel::MessageDeliveryFailure;
-use crate::dto::message::EventDto;
 use crate::service::agents_manager_service::{AgentsManagerService, SyncEvent};
 
 pub const CHANNEL_CREATED_METRIC_NAME: &str = "megaphone_channel_created";
@@ -33,7 +34,6 @@ pub struct BufferedChannel<Event> {
     last_read: Arc<Mutex<SystemTime>>,
     created_ts: Arc<Mutex<SystemTime>>,
 }
-
 const EVT_BUFFER_SIZE: usize = 100;
 
 impl<Event> BufferedChannel<Event> {
@@ -181,14 +181,16 @@ impl<Event> MegaphoneService<Event> {
             .map(|channel| channel.key().to_string())
     }
 
-    pub fn list_channels<'a, C: From<RefMulti<'a, String, BufferedChannel<Event>>>>(&'a self, skip: usize, limit: usize) -> Vec<C>
-    where Event: 'a
+    pub fn list_channels<'a, C>(&'a self, skip: usize, limit: usize) -> anyhow::Result<Vec<C>>
+    where
+        Event: 'a,
+        C: FromStr<Err = anyhow::Error>
     {
         self.buffer.iter()
-            .map(|v| C::from(v))
+            .map(|v| v.key().parse::<C>())
             .skip(skip)
             .take(limit)
-            .collect()
+            .collect::<Result<_, _>>()
     }
 
     pub fn count_by_agent(&self, agent: &str) -> usize {
@@ -201,6 +203,12 @@ impl<Event> MegaphoneService<Event> {
 
 pub trait WithTimestamp {
     fn timestamp(&self) -> SystemTime;
+}
+
+impl WithTimestamp for EventDto {
+    fn timestamp(&self) -> SystemTime {
+        self.timestamp.into()
+    }
 }
 
 impl MegaphoneService<EventDto> {

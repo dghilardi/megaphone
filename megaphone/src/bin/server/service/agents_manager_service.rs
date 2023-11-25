@@ -1,4 +1,3 @@
-use std::collections::hash_map::RandomState;
 use std::ops::Add;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -9,9 +8,11 @@ use lazy_static::lazy_static;
 use rand::seq::IteratorRandom;
 use tokio::sync::mpsc;
 
+use megaphone::dto::agent::VirtualAgentModeDto;
+use megaphone::dto::message::EventDto;
+
 use crate::core::config::{AgentConfig, VirtualAgentMode};
 use crate::core::error::MegaphoneError;
-use crate::dto::message::EventDto;
 
 pub const WARMUP_SECS: u64 = 60;
 
@@ -56,6 +57,16 @@ pub enum VirtualAgentStatus {
     Master,
     Replica { pipe_sessions_count: usize },
     Piped { pipes: Vec<mpsc::Sender<SyncEvent>> },
+}
+
+impl From<&VirtualAgentStatus> for VirtualAgentModeDto {
+    fn from(value: &VirtualAgentStatus) -> Self {
+        match value {
+            VirtualAgentStatus::Master => Self::Master,
+            VirtualAgentStatus::Replica { .. } => Self::Replica,
+            VirtualAgentStatus::Piped { .. } => Self::Piped,
+        }
+    }
 }
 
 impl From<VirtualAgentMode> for VirtualAgentStatus {

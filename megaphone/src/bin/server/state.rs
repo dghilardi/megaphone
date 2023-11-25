@@ -1,6 +1,8 @@
 use std::sync::Arc;
+
 use axum::extract::FromRef;
 use tokio::sync::RwLock;
+
 use crate::core::config::MegaphoneConfig;
 use crate::core::error::MegaphoneError;
 use crate::service::agents_manager_service::AgentsManagerService;

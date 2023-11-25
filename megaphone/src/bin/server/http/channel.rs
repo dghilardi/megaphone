@@ -7,14 +7,15 @@ use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use futures::StreamExt;
-use serde_json::{json, Value};
 use tokio::sync::RwLock;
-use crate::core::config::MegaphoneConfig;
-use crate::dto::agent::{BasicOutcomeDto, OutcomeStatus};
 
-use crate::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateResDto, ChannelInfoDto, ChannelsListParams, WriteBatchReqDto, WriteBatchResDto};
-use crate::dto::error::ErrorDto;
-use crate::dto::message::EventDto;
+use megaphone::dto::agent::{BasicOutcomeDto, OutcomeStatus};
+use megaphone::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateResDto, ChannelInfoDto, ChannelsListParams, WriteBatchReqDto, WriteBatchResDto};
+use megaphone::dto::error::ErrorDto;
+use megaphone::dto::message::EventDto;
+
+use crate::core::config::MegaphoneConfig;
+use crate::core::error::MegaphoneError;
 use crate::service::megaphone_service::MegaphoneService;
 
 pub async fn create_handler(
@@ -104,5 +105,7 @@ pub async fn channels_list_handler(
     Query(params): Query<ChannelsListParams>,
     State(svc): State<MegaphoneService<EventDto>>,
 ) -> Result<Json<Vec<ChannelInfoDto>>, (StatusCode, Json<ErrorDto>)> {
-    Ok(Json(svc.list_channels(params.skip, params.limit)))
+    let channels = svc.list_channels(params.skip, params.limit)
+        .map_err(|e| MegaphoneError::InternalError(format!("Error retrieving channels - {e}")))?;
+    Ok(Json(channels))
 }

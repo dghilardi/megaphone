@@ -11,9 +11,13 @@ license = "MIT"
 readme = "../README.md"
 
 [dependencies]
+chrono = { version = "0.4.31", features = ["serde"] }
+serde = { version = "1.0.147", features = ["derive"] }
+anyhow = "1.0.75"
+rand = "0.8.5"
+
 env_logger = "0.10.0"
 log = "0.4.17"
-rand = "0.8.5"
 
 config = "0.13.2"
 thiserror = "1.0.37"
@@ -26,12 +30,9 @@ axum = "0.6.20"
 hyperlocal = "0.8.0"
 metrics = "0.21.1"
 metrics-exporter-prometheus = "0.12.1"
-serde = { version = "1.0.147", features = ["derive"] }
 serde_json = "1.0.87"
 lazy_static = "1.4.0"
 regex = "1.10.2"
-chrono = { version = "0.4.31", features = ["serde"] }
-anyhow = "1.0.75"
 
 
 clap = { version = "4.1.6", features = ["derive"] }
@@ -40,6 +41,18 @@ hyper = "0.14.26"
 tonic = "0.10"
 prost = "0.12"
 prost-types = "0.12.1"
+
+[features]
+bin-server = []
+bin-cli = []
+
+[[bin]]
+name = "megactl"
+required-features = ["bin-cli"]
+
+[[bin]]
+name = "server"
+required-features = ["bin-server"]
 
 [build-dependencies]
 tonic-build = "0.10"

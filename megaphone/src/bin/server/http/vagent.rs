@@ -2,18 +2,18 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 use axum::response::IntoResponse;
-use futures::FutureExt;
+use futures::StreamExt;
 use tokio::sync::mpsc;
 use tonic::codegen::tokio_stream::wrappers;
-use crate::core::error::MegaphoneError;
 
-use crate::dto::agent::{AddVirtualAgentReqDto, BasicOutcomeDto, PipeVirtualAgentReqDto, VirtualAgentItemDto, VirtualAgentModeDto};
-use crate::dto::error::ErrorDto;
+use megaphone::dto::agent::{AddVirtualAgentReqDto, BasicOutcomeDto, PipeVirtualAgentReqDto, VirtualAgentItemDto, VirtualAgentModeDto};
+use megaphone::dto::error::ErrorDto;
+use megaphone::dto::message::EventDto;
+
+use crate::core::error::MegaphoneError;
 use crate::grpc::server::megaphone::sync_service_client::SyncServiceClient;
 use crate::grpc::server::megaphone::SyncRequest;
 use crate::service::agents_manager_service::{AgentsManagerService, SyncEvent};
-use futures::StreamExt;
-use crate::dto::message::EventDto;
 use crate::service::megaphone_service::MegaphoneService;
 
 pub async fn list_virtual_agents(

@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
-use dashmap::mapref::multiple::RefMulti;
+use std::str::FromStr;
+
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use crate::service::megaphone_service::BufferedChannel;
 
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
@@ -71,11 +72,16 @@ pub struct ChannelInfoDto {
     pub agent_id: String,
 }
 
-impl <E> From<RefMulti<'_, String, BufferedChannel<E>>> for ChannelInfoDto {
-    fn from(value: RefMulti<String, BufferedChannel<E>>) -> Self {
-        Self {
-            channel_id: value.key().to_string(),
-            agent_id: value.key().split('.').next().map(ToString::to_string).unwrap_or_default(),
-        }
+impl FromStr for ChannelInfoDto {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self {
+            channel_id: String::from(s),
+            agent_id: s.split('.')
+                .next()
+                .map(ToString::to_string)
+                .ok_or_else(|| anyhow!("Cannot extract agent from {s}"))?,
+        })
     }
 }
