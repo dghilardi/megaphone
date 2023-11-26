@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use futures::StreamExt;
 use serde::Deserialize;
 
-use megaphone::client::{MegaphoneClient, StreamSpec};
+use megaphone::client::{MegaphoneClient, model::StreamSpec};
 
 #[derive(Deserialize)]
 struct NewChatMessagePayload {
@@ -15,11 +15,11 @@ struct NewChatMessagePayload {
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let mut client = MegaphoneClient::new("http://localhost:5173/read", 100);
+    let mut client = MegaphoneClient::new("http://localhost:3080/read", 100);
     let mut msg_stream = client.new_unbounded_stream::<_, anyhow::Error, _, NewChatMessagePayload>(|channel| async {
         let http_client = reqwest::Client::new();
 
-        let mut req_builder = http_client.post("http://localhost:5173/room/test");
+        let mut req_builder = http_client.post("http://localhost:3080/room/test");
         if let Some(channel) = channel {
             req_builder = req_builder.header("use-channel", channel);
         }

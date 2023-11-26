@@ -28,6 +28,7 @@ services:
       - "3040:3040"
     environment:
       - MEGAPHONE_URL=http://megaphone:3000
+      - MEGAPHONE_AGENT_URL=http://megaphone:3000
 
   frontend:
     build:
