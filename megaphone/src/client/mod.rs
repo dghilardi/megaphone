@@ -5,6 +5,7 @@ use futures::Stream;
 use futures::stream::StreamExt;
 use hyper::{Client, Uri};
 use hyper::body::HttpBody;
+use hyper_tls::HttpsConnector;
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::RwLock;
@@ -24,8 +25,8 @@ struct StreamSubscription {
 }
 
 pub struct StreamSpec {
-    channel: String,
-    streams: Vec<String>,
+    pub channel: String,
+    pub streams: Vec<String>,
 }
 
 pub struct MegaphoneClient {
@@ -47,7 +48,7 @@ impl MegaphoneClient {
 
     pub async fn new_unbounded_stream<Initializer, InitErr, Fut, Message>(&mut self, initializer: Initializer) -> Result<impl Stream<Item=Result<Message, serde_json::error::Error>>, InitErr>
         where
-            Initializer: Fn(Option<&str>) -> Fut,
+            Initializer: Fn(Option<String>) -> Fut,
             InitErr: From<Error>,
             Fut: Future<Output=Result<StreamSpec, InitErr>>,
             Message: DeserializeOwned,
@@ -57,7 +58,7 @@ impl MegaphoneClient {
             let url_guard = self.url.read().await;
             let mut channel_guard = self.channel_id.write().await;
             let mut subscriptions_guard = self.subscriptions.write().await;
-            let channel_spec = initializer(channel_guard.as_ref().map(String::as_str)).await?;
+            let channel_spec = initializer(channel_guard.clone()).await?;
             for stream_id in channel_spec.streams {
                 subscriptions_guard.push(StreamSubscription {
                     channel_id: channel_spec.channel.clone(),
@@ -89,14 +90,16 @@ impl MegaphoneClient {
         drop(channel_id_guard);
 
         let read_uri: Uri = {
-            let url = format!("{}/{}", url.strip_suffix('/').unwrap_or_default(), current_channel_id);
+            let url = format!("{}/{}", url.trim_matches('/'), current_channel_id);
             url
                 .parse()
                 .map_err(|_err| Error::InvalidUrl { url })?
         };
         let handle = tokio::spawn(async move {
             loop {
-                let client = Client::new();
+                let connector = HttpsConnector::new();
+                let client = Client::builder().build::<_, hyper::Body>(connector);
+
                 let mut resp = match client.get(read_uri.clone()).await {
                     Ok(resp) => resp,
                     Err(err) => {
@@ -109,7 +112,7 @@ impl MegaphoneClient {
                         Err(err) => log::warn!("Error in received chunk - {err}"),
                         Ok(Err(err)) => log::warn!("Error parsing string from chunk - {err}"),
                         Ok(Ok(msg)) => {
-                            for chunk_str in msg.split('\n') {
+                            for chunk_str in msg.split('\n').filter(|chunk| !chunk.is_empty()) {
                                 match serde_json::from_str::<EventDto>(chunk_str) {
                                     Ok(evt) => {
                                         let sub_guard = subscriptions.read().await;

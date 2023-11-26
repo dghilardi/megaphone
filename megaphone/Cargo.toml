@@ -38,6 +38,7 @@ regex = { version = "1.10.2", optional = true }
 
 clap = { version = "4.1.6", features = ["derive"], optional = true }
 hyper = { version = "0.14.26", optional = true }
+hyper-tls = { version = "0.5.0", optional = true }
 
 tonic = { version = "0.10", optional = true }
 prost = { version = "0.12", optional = true }
@@ -46,7 +47,8 @@ prost-types = { version = "0.12.1", optional = true }
 [features]
 bin-server = ["tokio", "futures", "thiserror", "config", "log", "env_logger", "axum", "metrics", "metrics-exporter-prometheus", "lazy_static", "tonic", "prost", "prost-types", "hyperlocal", "regex", "dashmap"]
 bin-cli = ["tokio",  "clap", "hyper", "hyperlocal"]
-client = ["log", "thiserror", "futures", "tokio", "tokio-stream", "hyper"]
+client = ["log", "thiserror", "futures", "tokio", "tokio-stream", "hyper", "hyper-tls"]
+examples = ["client", "env_logger"]
 
 [[bin]]
 name = "megactl"
