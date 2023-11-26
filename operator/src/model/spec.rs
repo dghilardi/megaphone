@@ -19,10 +19,6 @@ pub struct MegaphoneSpec {
 }
 
 impl MegaphoneSpec {
-    pub fn does_spec_change_require_pod_restart(&self, pod: &Pod) -> bool {
-        false
-    }
-
     pub fn is_satisfied_by_pod(&self, pod: &Pod) -> bool {
         let Some(megaphone_container) = pod.spec.as_ref()
             .and_then(|spec| spec.containers.iter().find(|container| container.name.eq("megaphone"))) else {

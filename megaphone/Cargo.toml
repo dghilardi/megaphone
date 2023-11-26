@@ -23,6 +23,7 @@ log = { version = "0.4.17", optional = true }
 config = { version = "0.13.2", optional = true }
 thiserror = { version = "1.0.37", optional = true }
 tokio = { version = "1.21.2", features = ["rt", "macros"], optional = true }
+tokio-stream = { version = "0.1.14", optional = true }
 futures = { version = "0.3.25", optional = true }
 
 dashmap = { version = "5.4.0", optional = true }
@@ -45,6 +46,7 @@ prost-types = { version = "0.12.1", optional = true }
 [features]
 bin-server = ["tokio", "futures", "thiserror", "config", "log", "env_logger", "axum", "metrics", "metrics-exporter-prometheus", "lazy_static", "tonic", "prost", "prost-types", "hyperlocal", "regex", "dashmap"]
 bin-cli = ["tokio",  "clap", "hyper", "hyperlocal"]
+client = ["log", "thiserror", "futures", "tokio", "tokio-stream", "hyper"]
 
 [[bin]]
 name = "megactl"

@@ -1,10 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use kube::{
-    api::Resource,
-    runtime::controller::Action,
-};
+use kube::runtime::controller::Action;
 
 use crate::model::context::ContextData;
 use crate::model::error::Error;
