@@ -12,21 +12,18 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 use crate::client::error::Error;
+use crate::client::model::StreamSpec;
 use crate::client::utils::circular_buffer::CircularBuffer;
 use crate::dto::message::EventDto;
 
 mod utils;
 mod error;
+pub mod model;
 
 struct StreamSubscription {
     channel_id: String,
     stream_id: String,
     tx: UnboundedSender<EventDto>,
-}
-
-pub struct StreamSpec {
-    pub channel: String,
-    pub streams: Vec<String>,
 }
 
 pub struct MegaphoneClient {
@@ -129,15 +126,18 @@ impl MegaphoneClient {
                                                 });
                                             buf_guard.push(evt.event_id);
                                         }
-                                    },
+                                    }
                                     Err(err) => log::warn!("Error deserializing chunk - {err}"),
                                 }
                             }
                         }
                     }
                 }
-                if subscriptions.read().await.iter().all(|s| !s.tx.is_closed() && s.channel_id.ne(&current_channel_id)) {
-                    log::debug!("No subscriptions left");
+                if channel_id.read().await.as_ref().map(|channel| channel.ne(&current_channel_id)).unwrap_or(true) {
+                    log::warn!("Channel id changed during polling. Ending poller for channel {current_channel_id}");
+                    break;
+                } else if subscriptions.read().await.iter().all(|s| !s.tx.is_closed() && s.channel_id.ne(&current_channel_id)) {
+                    log::debug!("No subscriptions left for channel {current_channel_id}. Ending poller");
                     break;
                 }
             }
