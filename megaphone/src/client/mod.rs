@@ -7,11 +7,11 @@ use hyper::{Client, Uri};
 use hyper::body::HttpBody;
 use hyper_tls::HttpsConnector;
 use serde::de::DeserializeOwned;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use crate::client::error::Error;
+use crate::client::error::{DelayedResponseError, Error};
 use crate::client::model::StreamSpec;
 use crate::client::utils::circular_buffer::CircularBuffer;
 use crate::dto::message::EventDto;
@@ -50,6 +50,36 @@ impl MegaphoneClient {
             Fut: Future<Output=Result<StreamSpec, InitErr>>,
             Message: DeserializeOwned,
     {
+        let rx = self.initialize_stream(initializer).await?;
+        let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx)
+            .map(|msg| serde_json::from_value(msg.body));
+        Ok(stream)
+    }
+
+    pub async fn delayed_response<Initializer, InitErr, Fut, Message>(&mut self, initializer: Initializer) -> Result<Message, DelayedResponseError>
+        where
+            Initializer: Fn(Option<String>) -> Fut,
+            InitErr: From<Error> + ToString,
+            Fut: Future<Output=Result<StreamSpec, InitErr>>,
+            Message: DeserializeOwned,
+    {
+        let mut rx = self.initialize_stream(initializer).await
+            .map_err(|err| DelayedResponseError::InitializationError(err.to_string()))?;
+
+        let event = rx.recv().await
+            .ok_or(DelayedResponseError::MissingResponse)?;
+
+        serde_json::from_value(event.body)
+            .map_err(|err| DelayedResponseError::DeserializationError(err.to_string()))
+    }
+
+
+    async fn initialize_stream<Initializer, InitErr, Fut>(&mut self, initializer: Initializer) -> Result<UnboundedReceiver<EventDto>, InitErr>
+        where
+            Initializer: Fn(Option<String>) -> Fut,
+            InitErr: From<Error>,
+            Fut: Future<Output=Result<StreamSpec, InitErr>>,
+    {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<EventDto>();
         {
             let url_guard = self.url.read().await;
@@ -70,10 +100,7 @@ impl MegaphoneClient {
                 Self::spawn_reader(url_guard.as_str(), self.channel_id.clone(), self.event_buffer.clone(), self.subscriptions.clone()).await?;
             }
         }
-
-        let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx)
-            .map(|msg| serde_json::from_value(msg.body));
-        Ok(stream)
+        Ok(rx)
     }
 
     async fn spawn_reader(
