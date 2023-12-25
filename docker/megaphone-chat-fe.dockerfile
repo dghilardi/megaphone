@@ -1,11 +1,11 @@
 # Deps stage - download dependencies
-FROM node:20.8 as deps
+FROM node:21.5 as deps
 WORKDIR /app
 COPY demo/react-vite-demo/package*.json /app/
 RUN npm ci
 
 # Build stage - Produce angular production bundle
-FROM node:20.8 as build
+FROM node:21.5 as build
 WORKDIR /app
 COPY --from=deps /app /app
 COPY demo/react-vite-demo/. /app
