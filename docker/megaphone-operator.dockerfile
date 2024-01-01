@@ -1,4 +1,4 @@
-FROM rust:1.74-bookworm as build
+FROM rust:1.75-bookworm as build
 
 WORKDIR /app
 
