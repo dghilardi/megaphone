@@ -1,18 +1,24 @@
 use std::fs;
-use std::future::ready;
+use std::future::{Future, ready};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use axum::{Router, routing::{get, post}, Server};
-use axum::extract::FromRef;
-use axum::handler::Handler;
-
-use axum::routing::{delete, IntoMakeService};
-use futures::TryFutureExt;
-use hyperlocal::{SocketIncoming, UnixServerExt};
+use axum::{Router, routing::{get, post}};
+use axum::extract::{connect_info, FromRef};
+use axum::http::Request;
+use axum::response::IntoResponse;
+use axum::routing::delete;
+use futures::{StreamExt, TryFutureExt};
+use hyper::body::Incoming;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server;
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use tokio::net::{UnixListener, UnixStream};
+use tokio::net::unix::UCred;
 use tokio::try_join;
+use tower::Service;
 
 use megaphone::dto::message::EventDto;
 
@@ -69,7 +75,7 @@ async fn main() {
 
     let recorder_handle = setup_metrics_recorder();
 
-    let app = Router::new()
+    let app: axum::routing::Router = Router::new()
 
         .route("/create", post(http::channel::create_handler))
         .route("/write/:channel_id/:stream_id", post(http::channel::write_handler))
@@ -83,10 +89,16 @@ async fn main() {
         .add_service(SyncServiceServer::new(MegaphoneSyncService::new(AgentsManagerService::from_ref(&service), MegaphoneService::from_ref(&service))))
         .serve(grpc_address);
 
+    let tcp_listener = tokio::net::TcpListener::bind(&address).await
+        .expect("Error binding Tcp Listener");
+
+    let api_server = async move {
+        axum::serve(tcp_listener, app.into_make_service()).await
+            .map_err(anyhow::Error::from)
+    };
+
     try_join!(
-        axum::Server::bind(&address)
-            .serve(app.into_make_service())
-            .map_err(anyhow::Error::from),
+        api_server,
         build_server(mng_socket_path, service)
             .expect("Error building mgmt server")
             .map_err(anyhow::Error::from),
@@ -95,7 +107,26 @@ async fn main() {
     ).expect("Error starting server");
 }
 
-pub fn build_server(path: impl AsRef<Path>, service: MegaphoneState<EventDto>) -> anyhow::Result<Server<SocketIncoming, IntoMakeService<Router>>> {
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+struct UdsConnectInfo {
+    peer_addr: Arc<tokio::net::unix::SocketAddr>,
+    peer_cred: UCred,
+}
+
+impl connect_info::Connected<&UnixStream> for UdsConnectInfo {
+    fn connect_info(target: &UnixStream) -> Self {
+        let peer_addr = target.peer_addr().unwrap();
+        let peer_cred = target.peer_cred().unwrap();
+
+        Self {
+            peer_addr: Arc::new(peer_addr),
+            peer_cred,
+        }
+    }
+}
+
+pub fn build_server(path: impl AsRef<Path>, service: MegaphoneState<EventDto>) -> anyhow::Result<impl Future<Output=anyhow::Result<()>>> {
     if path.as_ref().exists() {
         fs::remove_file(path.as_ref())
             .context("Could not remove old socket!")?;
@@ -109,8 +140,31 @@ pub fn build_server(path: impl AsRef<Path>, service: MegaphoneState<EventDto>) -
         .route("/channel/:channel_id", delete(http::channel::channel_delete_handler))
         .with_state(service);
 
-    let srv = axum::Server::bind_unix(path)?
-        .serve(app.into_make_service());
+    let uds = UnixListener::bind(path)?;
+    let mut make_service = app.into_make_service_with_connect_info::<UdsConnectInfo>();
+
+    let srv = async move {
+        loop {
+            let (socket, _remote_addr) = uds.accept().await?;
+            let tower_service = make_service.call(&socket).await?;
+
+            tokio::spawn(async move {
+                let socket = TokioIo::new(socket);
+
+                let hyper_service =
+                    hyper::service::service_fn(move |request: Request<Incoming>| {
+                        tower_service.clone().call(request)
+                    });
+
+                if let Err(err) = server::conn::auto::Builder::new(TokioExecutor::new())
+                    .serve_connection_with_upgrades(socket, hyper_service)
+                    .await
+                {
+                    log::error!("failed to serve connection: {err:#}");
+                }
+            });
+        }
+    };
 
     Ok(srv)
 }

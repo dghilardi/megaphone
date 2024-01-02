@@ -2,11 +2,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{BoxError, Json};
-use axum::body::StreamBody;
+use axum::body::Body;
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use futures::StreamExt;
+use http_body_util::StreamBody;
 use tokio::sync::RwLock;
 
 use megaphone::dto::agent::{BasicOutcomeDto, OutcomeStatus};
@@ -47,7 +48,7 @@ pub async fn read_handler(
             })
             .map_err(BoxError::from)
         );
-    let body = StreamBody::new(stream);
+    let body = Body::from_stream(stream);
 
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, "application/x-ndjson".parse().unwrap());

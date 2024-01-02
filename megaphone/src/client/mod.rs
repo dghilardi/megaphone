@@ -3,9 +3,11 @@ use std::sync::Arc;
 
 use futures::Stream;
 use futures::stream::StreamExt;
-use hyper::{Client, Uri};
-use hyper::body::HttpBody;
+use http_body_util::{BodyExt, Empty};
+use hyper::body::Bytes;
+use hyper::Uri;
 use hyper_tls::HttpsConnector;
+use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use serde::de::DeserializeOwned;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::RwLock;
@@ -122,7 +124,7 @@ impl MegaphoneClient {
         let handle = tokio::spawn(async move {
             loop {
                 let connector = HttpsConnector::new();
-                let client = Client::builder().build::<_, hyper::Body>(connector);
+                let client = Client::builder(TokioExecutor::new()).build::<_, Empty<Bytes>>(connector);
 
                 let mut resp = match client.get(read_uri.clone()).await {
                     Ok(resp) => resp,
@@ -131,8 +133,9 @@ impl MegaphoneClient {
                         break;
                     }
                 };
-                while let Some(data_chunk_res) = resp.body_mut().data().await {
-                    match data_chunk_res.map(|bytes| String::from_utf8(bytes.to_vec())) {
+
+                while let Some(data_chunk_res) = resp.frame().await {
+                    match data_chunk_res.map(|frame| frame.data_ref().map(|b| b.to_vec())).map(|bytes| String::from_utf8(bytes.unwrap_or_default())) {
                         Err(err) => log::warn!("Error in received chunk - {err}"),
                         Ok(Err(err)) => log::warn!("Error parsing string from chunk - {err}"),
                         Ok(Ok(msg)) => {
