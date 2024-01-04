@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::fmt::Display;
+
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -413,7 +413,7 @@ impl MegaphoneReconciler {
     }
 
     pub async fn reconcile(self) -> Result<Action, Error> {
-        let current_workloads = self.megaphone
+        let _current_workloads = self.megaphone
             .status
             .clone()
             .unwrap_or_default()
@@ -423,7 +423,7 @@ impl MegaphoneReconciler {
         let pods_api = self.pods();
         let services_api = self.services();
         let workloads_api = self.workloads();
-        let megactl_api = self.megactl();
+        let _megactl_api = self.megactl();
 
         let mut new_pods = Vec::<String>::new();
         let mut new_services = Vec::<String>::new();
@@ -489,7 +489,7 @@ impl MegaphoneReconciler {
         let max_surge = 1.max(self.megaphone.spec.replicas / 4);
 
         if total_pods_count < self.megaphone.spec.replicas {
-            for i in 0..self.megaphone.spec.replicas - total_pods_count {
+            for _i in 0..self.megaphone.spec.replicas - total_pods_count {
                 let megaphone_pod = self.create_pod(random());
 
                 let res = pods_api
@@ -639,7 +639,7 @@ impl MegaphoneReconciler {
         let pods_api = self.pods();
         let params = ListParams::default().labels(&format!("{LABEL_CLUSTER_NAME}={}", self.cluster_name()));
         let mut pods = pods_api.list(&params).await
-            .map_err(|err| Error::MissingObjectKey("Cannot find cluster pods"))?
+            .map_err(|_err| Error::MissingObjectKey("Cannot find cluster pods"))?
             .into_iter()
             .map(|pod| (self.determine_pod_status(&pod), pod))
             .fold(HashMap::new(), |mut acc, (state, pod)| {

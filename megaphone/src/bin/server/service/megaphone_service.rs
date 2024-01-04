@@ -59,7 +59,7 @@ impl <Event> Drop for BufferedChannel<Event> {
         }
 
         if let Ok(mut stream) = self.rx.try_lock() {
-            while let Ok(msg) = stream.try_recv() {
+            while let Ok(_msg) = stream.try_recv() {
                 increment_counter!(MESSAGES_LOST_METRIC_NAME);
             }
         } else {
@@ -299,7 +299,7 @@ impl MegaphoneService<EventDto> {
             Err(TrySendError::Full(message)) => {
                 channel.force_write(message)
             }
-            Err(TrySendError::Closed(message)) => {
+            Err(TrySendError::Closed(_message)) => {
                 log::error!("Error injecting message - channel is disconnected");
                 Err(MegaphoneError::InternalError(String::from("Disconnected channel")))
             }

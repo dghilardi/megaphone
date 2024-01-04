@@ -65,7 +65,7 @@ impl SyncService for MegaphoneSyncService {
                         log::warn!("agent-id {} is not registered", req.agent_id);
                     }
                 }
-                Ok(SyncRequest { sync_event: Some(SyncEvent::ChannelDisposed(req)) }) => {}
+                Ok(SyncRequest { sync_event: Some(SyncEvent::ChannelDisposed(_req)) }) => {}
                 Ok(SyncRequest { sync_event: Some(SyncEvent::ChannelCreated(req)) }) => {
                     let out = self.megaphone_svc.create_channel_with_id(&req.channel_id).await;
                     if let Err(err) = out {

@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
                 || client.post::<_, _, BasicOutcomeDto>(Uri::new(args.path, "/vagent/pipe"), PipeVirtualAgentReqDto::from(pipe_agent_args)),
             ).await;
         },
-        Commands::ListChannels(list_channels_args) => {
+        Commands::ListChannels(_list_channels_args) => {
             execute_command(
                 args.out_format,
                 || client.get::<_, BasicOutcomeDto>(Uri::new(args.path, "/channel/list")),

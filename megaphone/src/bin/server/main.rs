@@ -7,9 +7,9 @@ use anyhow::Context;
 use axum::{Router, routing::{get, post}, Server};
 use axum::extract::FromRef;
 use axum::handler::Handler;
-use axum::response::IntoResponse;
+
 use axum::routing::{delete, IntoMakeService};
-use futures::{StreamExt, TryFutureExt};
+use futures::TryFutureExt;
 use hyperlocal::{SocketIncoming, UnixServerExt};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use tokio::try_join;
