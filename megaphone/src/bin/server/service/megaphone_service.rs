@@ -15,6 +15,7 @@ use tokio::time::Instant;
 
 use megaphone::dto::channel::MessageDeliveryFailure;
 use megaphone::dto::message::EventDto;
+use megaphone::model::feature::Feature;
 
 use crate::core::error::MegaphoneError;
 use crate::service::agents_manager_service::{AgentsManagerService, SyncEvent};
@@ -100,7 +101,7 @@ impl<Event> MegaphoneService<Event> {
 
         increment_counter!(CHANNEL_CREATED_METRIC_NAME);
 
-        let full_id = format!("{vagent_id}.{channel_id}");
+        let full_id = format!("{vagent_id}.{channel_id}.{}", Feature::new(megaphone::model::constants::features::CHAN_CHUNKED_STREAM).serialize());
 
         self.buffer.insert(full_id.clone(), BufferedChannel::new());
         Ok((vagent_id, full_id))
