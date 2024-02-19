@@ -2,6 +2,7 @@
 
 import { Observable, Subscriber } from "rxjs";
 
+
 type Chunk<T> = {
     sid: string;
     eid: string;
@@ -15,12 +16,17 @@ interface StreamSpec<T> {
     finalizer: (msg: Chunk<T>) => boolean;
 }
 
-class MegaphonePoller {
+export class MegaphonePoller {
     private channelId?: string;
     private streams: Array<StreamSpec<unknown>> = [];
+    private eventIdBufferIdx = 0;
+    private eventIdBuffer: string[];
     constructor(
         private baseUrl: string,
-    ) { }
+        bufferLength: number,
+    ) { 
+        this.eventIdBuffer = new Array(bufferLength);
+    }
 
     async spawnReader(channelId: string): Promise<void> {
         this.channelId = channelId;
@@ -41,8 +47,11 @@ class MegaphonePoller {
                             value
                                 .trim()
                                 .split('\n')
-                                .forEach(chunk => {
-                                    const msg = JSON.parse(chunk);
+                                .map(chunkStr => JSON.parse(chunkStr))
+                                .filter(msg => !this.eventIdBuffer.includes(msg.eid))
+                                .forEach(msg => {
+                                    this.eventIdBuffer[this.eventIdBufferIdx] = msg.eid;
+                                    this.eventIdBufferIdx = (this.eventIdBufferIdx + 1) % this.eventIdBuffer.length;                                    
                                     const stream = this.streams.find(({ stream }) => stream === msg.sid);
                                     if (stream) {
                                         stream.subscriber.next(msg);
