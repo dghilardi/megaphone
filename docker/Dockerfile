@@ -1,8 +1,8 @@
-FROM rust:1.75-bookworm as build
+FROM rust:1.76-bookworm as build
 
 WORKDIR /app
 
-ARG PROTOC_VERSION=v23.2
+ARG PROTOC_VERSION=v25.3
 RUN arch="$(uname -m)" ; \
     version="$PROTOC_VERSION" ; \
     curl --proto '=https' -vsSfLo protoc.zip  "https://github.com/google/protobuf/releases/download/$version/protoc-${version#v}-linux-$arch.zip" && \
@@ -19,6 +19,12 @@ COPY megaphone/examples /app/examples
 RUN cargo build --all-features --release
 
 FROM debian:bookworm-slim as dist
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libssl3 \
+    && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=build /app/target/release/server /app/megaphone
