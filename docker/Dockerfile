@@ -14,7 +14,6 @@ ENV PROTOC=/opt/protobuf/bin/protoc
 COPY Cargo.toml build.rs Cargo.lock /app/
 COPY proto /app/proto
 COPY src /app/src
-COPY examples /app/examples
 
 RUN cargo build --all-features --release
 
