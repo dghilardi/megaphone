@@ -39,6 +39,10 @@ impl VirtualAgentProps {
         &self.status
     }
 
+    pub fn status_mut(&mut self) -> &mut VirtualAgentStatus {
+        &mut self.status
+    }
+
     pub fn change_ts(&self) -> SystemTime {
         self.change_ts
     }
@@ -145,25 +149,25 @@ impl AgentsManagerService {
     }
 
     pub fn open_replica_session(&self, name: &str) -> Result<(), MegaphoneError> {
-        let entry = self.virtual_agents.entry(String::from(name))
+        let mut entry = self.virtual_agents.entry(String::from(name))
             .or_insert_with(|| VirtualAgentProps::new(VirtualAgentStatus::Replica { pipe_sessions_count: 0 }));
 
-        let VirtualAgentStatus::Replica { mut pipe_sessions_count } = entry.status() else {
+        let VirtualAgentStatus::Replica { ref mut pipe_sessions_count } = entry.status_mut() else {
             return Err(MegaphoneError::InternalError(format!("{name} agent is already registered but is not a replica")));
         };
-        pipe_sessions_count += 1;
+        *pipe_sessions_count += 1;
 
         Ok(())
     }
 
     pub fn close_replica_session(&self, name: &str) -> Result<(), MegaphoneError> {
-        let Some(entry) = self.virtual_agents.get(name) else {
+        let Some(mut entry) = self.virtual_agents.get_mut(name) else {
             return Err(MegaphoneError::InternalError(format!("{name} agent is not registered")));
         };
-        let VirtualAgentStatus::Replica { mut pipe_sessions_count } = entry.status() else {
+        let VirtualAgentStatus::Replica { ref mut pipe_sessions_count } = entry.status_mut() else {
             return Err(MegaphoneError::InternalError(format!("{name} agent is already registered but is not a replica")));
         };
-        pipe_sessions_count -= 1;
+        *pipe_sessions_count -= 1;
         Ok(())
     }
 
