@@ -220,7 +220,7 @@ impl MegaphoneService<EventDto> {
         let results = futures::future::join_all(results_fut).await;
 
         results.into_iter()
-            .map(|(chan_id, results)| results.into_iter()
+            .flat_map(|(chan_id, results)| results.into_iter()
                 .enumerate()
                 .flat_map(|(idx, res)| res.err().map(|err| (idx, err)))
                 .map(|(index, err)| MessageDeliveryFailure {
@@ -229,7 +229,6 @@ impl MegaphoneService<EventDto> {
                     reason: String::from(err.code()),
                 })
             )
-            .flatten()
             .collect()
     }
 

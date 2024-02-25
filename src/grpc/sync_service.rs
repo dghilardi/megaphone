@@ -95,16 +95,10 @@ impl SyncService for MegaphoneSyncService {
     }
 }
 
-fn datetime_to_timestamp(datetime: DateTime<Utc>) -> Timestamp {
-    Timestamp {
-        seconds: datetime.timestamp(),
-        nanos: datetime.timestamp_subsec_nanos().try_into().unwrap_or(i32::MAX),
-    }
-}
 
 fn timestamp_to_datetime(timestamp: Timestamp) -> Option<DateTime<Utc>> {
     let naive = NaiveDateTime::from_timestamp_opt(timestamp.seconds, cmp::max(0, timestamp.nanos) as u32)?;
-    Some(DateTime::from_utc(naive, Utc))
+    Some(DateTime::from_naive_utc_and_offset(naive, Utc))
 }
 
 impl TryFrom<EventReceived> for EventDto {

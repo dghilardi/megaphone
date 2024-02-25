@@ -50,7 +50,7 @@ pub async fn pipe_virtual_agent(
         .map_err(|err| MegaphoneError::InternalError(format!("Error during connection establishment - {err}")))?;
     let (tx, rx) = mpsc::channel(500);
     tokio::spawn(async move {
-        match client.forward_events(wrappers::ReceiverStream::new(rx).map(|evt| SyncRequest::from(evt))).await {
+        match client.forward_events(wrappers::ReceiverStream::new(rx).map(SyncRequest::from)).await {
             Ok(ok) => log::info!("Pipe terminated with message - {}", ok.into_inner().message),
             Err(err) => log::error!("Pipe terminated with error - {err}"),
         }

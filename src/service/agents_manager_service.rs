@@ -197,7 +197,7 @@ impl AgentsManagerService {
             VirtualAgentStatus::Master => VirtualAgentStatus::Piped { pipes: vec![pipe] },
             VirtualAgentStatus::Piped { pipes } => VirtualAgentStatus::Piped { pipes: pipes.clone().into_iter().chain([pipe]).collect() },
             VirtualAgentStatus::Replica { pipe_sessions_count: 0 } => VirtualAgentStatus::Piped { pipes: vec![pipe] },
-            VirtualAgentStatus::Replica { .. } => return Err(MegaphoneError::BadRequest(format!("Cannot pipe agent because it is already a replica"))),
+            VirtualAgentStatus::Replica { .. } => return Err(MegaphoneError::BadRequest(String::from("Cannot pipe agent because it is already a replica"))),
         };
         agent.change_status(new_status);
         Ok(())

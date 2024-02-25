@@ -6,7 +6,6 @@ use std::time::Duration;
 use anyhow::Context;
 use axum::{Router, routing::{get, post}, Server};
 use axum::extract::FromRef;
-use axum::handler::Handler;
 
 use axum::routing::{delete, IntoMakeService};
 use futures::TryFutureExt;
@@ -59,8 +58,8 @@ async fn main() {
     let app_config: MegaphoneConfig = compose_config("megaphone", "megaphone")
         .expect("Error loading configuration");
 
-    let address = app_config.address.clone();
-    let grpc_address = app_config.grpc_address.clone();
+    let address = app_config.address;
+    let grpc_address = app_config.grpc_address;
     let mng_socket_path = app_config.mng_socket_path.clone();
     let service = MegaphoneState::build(app_config)
         .expect("Error building megaphone state");
