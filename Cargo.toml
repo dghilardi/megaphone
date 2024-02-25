@@ -17,10 +17,10 @@ serde_json = "1.0.87"
 anyhow = "1.0.75"
 rand = "0.8.5"
 
-env_logger = "0.10.0"
+env_logger = "0.11"
 log = "0.4.17"
 
-config = { version = "0.13.2" }
+config = "0.14"
 thiserror = { version = "1.0.37" }
 tokio = { version = "1.21.2", features = ["rt", "macros"] }
 tokio-stream = { version = "0.1.14", optional = true }
@@ -39,7 +39,7 @@ regex = "1.10.2"
 clap = { version = "4.1.6", features = ["derive"], optional = true }
 hyper = { version = "0.14.28", optional = true }
 
-tonic = "0.10"
+tonic = "0.11"
 prost = "0.12"
 prost-types = "0.12.1"
 hex = "0.4.3"
@@ -54,4 +54,4 @@ name = "megactl"
 required-features = ["bin-cli"]
 
 [build-dependencies]
-tonic-build = "0.10"
+tonic-build = "0.11"
