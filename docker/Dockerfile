@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=build /app/target/release/server /app/megaphone
+COPY --from=build /app/target/release/megaphone-broker /app/megaphone
 COPY --from=build /app/target/release/megactl /app/megactl
 
 CMD ["/app/megaphone"]

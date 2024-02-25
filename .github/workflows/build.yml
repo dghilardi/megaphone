@@ -42,7 +42,7 @@ jobs:
       run: |
         cargo build --release --all-features --target=x86_64-unknown-linux-gnu
         mkdir builds/megaphone-linux
-        cp target/x86_64-unknown-linux-gnu/release/server builds/megaphone-linux
+        cp target/x86_64-unknown-linux-gnu/release/megaphone-broker builds/megaphone-linux
         tar -C builds -czvf dist/megaphone-linux.tar.gz megaphone-linux
     - name: Upload release
       uses: softprops/action-gh-release@v1

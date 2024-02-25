@@ -1,5 +1,5 @@
 [package]
-name = "megaphone"
+name = "megaphone-broker"
 version = "0.9.4"
 edition = "2021"
 
@@ -7,7 +7,7 @@ authors = ["Davide Ghilardi <dghila@d71.dev>"]
 description = "Reverse proxy for long running requests and server streaming"
 keywords = [ "http", "reverse-proxy", "infrastructure", "cloud" ]
 repository = "https://github.com/dghilardi/megaphone"
-license = "MIT"
+license = "AGPL-3.0-only"
 readme = "README.md"
 
 [dependencies]
@@ -17,54 +17,41 @@ serde_json = "1.0.87"
 anyhow = "1.0.75"
 rand = "0.8.5"
 
-env_logger = { version = "0.10.0", optional = true }
-log = { version = "0.4.17", optional = true }
+env_logger = "0.10.0"
+log = "0.4.17"
 
-config = { version = "0.13.2", optional = true }
-thiserror = { version = "1.0.37", optional = true }
-tokio = { version = "1.21.2", features = ["rt", "macros"], optional = true }
+config = { version = "0.13.2" }
+thiserror = { version = "1.0.37" }
+tokio = { version = "1.21.2", features = ["rt", "macros"] }
 tokio-stream = { version = "0.1.14", optional = true }
-futures = { version = "0.3.25", optional = true }
+futures = { version = "0.3.25" }
 
-dashmap = { version = "5.4.0", optional = true }
+dashmap = "5.4.0"
 
-axum = { version = "0.6.20", optional = true }
-hyperlocal = { version = "0.8.0", optional = true }
-metrics = { version = "0.21.1", optional = true }
-metrics-exporter-prometheus = { version = "0.13.0", optional = true }
-lazy_static = { version = "1.4.0", optional = true }
-regex = { version = "1.10.2", optional = true }
+axum = "0.6.20"
+hyperlocal = "0.8.0"
+metrics = "0.21.1"
+metrics-exporter-prometheus = "0.13.0"
+lazy_static = "1.4.0"
+regex = "1.10.2"
 
 
 clap = { version = "4.1.6", features = ["derive"], optional = true }
 hyper = { version = "0.14.28", optional = true }
-hyper-tls = { version = "0.5.0", optional = true }
 
-tonic = { version = "0.10", optional = true }
-prost = { version = "0.12", optional = true }
-prost-types = { version = "0.12.1", optional = true }
+tonic = "0.10"
+prost = "0.12"
+prost-types = "0.12.1"
 hex = "0.4.3"
 
+megaphone = "0.9.7"
+
 [features]
-bin-server = ["tokio", "futures", "thiserror", "config", "log", "env_logger", "axum", "metrics", "metrics-exporter-prometheus", "lazy_static", "tonic", "prost", "prost-types", "hyperlocal", "regex", "dashmap"]
-bin-cli = ["tokio",  "clap", "hyper", "hyperlocal"]
-client = ["log", "thiserror", "futures", "tokio", "tokio-stream", "hyper", "hyper-tls"]
-examples = ["client", "env_logger"]
+bin-cli = [ "clap", "hyper"]
 
 [[bin]]
 name = "megactl"
 required-features = ["bin-cli"]
-
-[[bin]]
-name = "server"
-required-features = ["bin-server"]
-
-[[example]]
-name = "demo-client"
-required-features = ["examples"]
-
-[dev-dependencies]
-reqwest = { version = "0.11.22", features = ["json"] }
 
 [build-dependencies]
 tonic-build = "0.10"
