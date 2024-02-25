@@ -11,10 +11,10 @@ RUN arch="$(uname -m)" ; \
 
 ENV PROTOC=/opt/protobuf/bin/protoc
 
-COPY megaphone/Cargo.toml megaphone/build.rs Cargo.lock /app/
-COPY megaphone/proto /app/proto
-COPY megaphone/src /app/src
-COPY megaphone/examples /app/examples
+COPY Cargo.toml build.rs Cargo.lock /app/
+COPY proto /app/proto
+COPY src /app/src
+COPY examples /app/examples
 
 RUN cargo build --all-features --release
 

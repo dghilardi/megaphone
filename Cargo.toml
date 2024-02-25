@@ -1,5 +1,70 @@
-[workspace]
-resolver = "2"
-members = [
-    "megaphone",
-]
+[package]
+name = "megaphone"
+version = "0.9.4"
+edition = "2021"
+
+authors = ["Davide Ghilardi <dghila@d71.dev>"]
+description = "Reverse proxy for long running requests and server streaming"
+keywords = [ "http", "reverse-proxy", "infrastructure", "cloud" ]
+repository = "https://github.com/dghilardi/megaphone"
+license = "MIT"
+readme = "README.md"
+
+[dependencies]
+chrono = { version = "0.4.31", features = ["serde"] }
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = "1.0.87"
+anyhow = "1.0.75"
+rand = "0.8.5"
+
+env_logger = { version = "0.10.0", optional = true }
+log = { version = "0.4.17", optional = true }
+
+config = { version = "0.13.2", optional = true }
+thiserror = { version = "1.0.37", optional = true }
+tokio = { version = "1.21.2", features = ["rt", "macros"], optional = true }
+tokio-stream = { version = "0.1.14", optional = true }
+futures = { version = "0.3.25", optional = true }
+
+dashmap = { version = "5.4.0", optional = true }
+
+axum = { version = "0.6.20", optional = true }
+hyperlocal = { version = "0.8.0", optional = true }
+metrics = { version = "0.21.1", optional = true }
+metrics-exporter-prometheus = { version = "0.13.0", optional = true }
+lazy_static = { version = "1.4.0", optional = true }
+regex = { version = "1.10.2", optional = true }
+
+
+clap = { version = "4.1.6", features = ["derive"], optional = true }
+hyper = { version = "0.14.28", optional = true }
+hyper-tls = { version = "0.5.0", optional = true }
+
+tonic = { version = "0.10", optional = true }
+prost = { version = "0.12", optional = true }
+prost-types = { version = "0.12.1", optional = true }
+hex = "0.4.3"
+
+[features]
+bin-server = ["tokio", "futures", "thiserror", "config", "log", "env_logger", "axum", "metrics", "metrics-exporter-prometheus", "lazy_static", "tonic", "prost", "prost-types", "hyperlocal", "regex", "dashmap"]
+bin-cli = ["tokio",  "clap", "hyper", "hyperlocal"]
+client = ["log", "thiserror", "futures", "tokio", "tokio-stream", "hyper", "hyper-tls"]
+examples = ["client", "env_logger"]
+
+[[bin]]
+name = "megactl"
+required-features = ["bin-cli"]
+
+[[bin]]
+name = "server"
+required-features = ["bin-server"]
+
+[[example]]
+name = "demo-client"
+required-features = ["examples"]
+
+[dev-dependencies]
+reqwest = { version = "0.11.22", features = ["json"] }
+
+[build-dependencies]
+tonic-build = "0.10"

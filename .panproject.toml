@@ -2,19 +2,10 @@
 software = "Git"
 
 [modules.megaphone]
-path = "megaphone"
+path = "."
 packageManager = "Cargo"
 main = true
 
 [modules.megaphone.hooks.after_rel]
-build = ["cargo", "build"]
-test = ["cargo", "test"]
-
-[modules.megaphone-operator]
-path = "operator"
-packageManager = "Cargo"
-main = false
-
-[modules.megaphone-operator.hooks.after_rel]
 build = ["cargo", "build"]
 test = ["cargo", "test"]
