@@ -9,3 +9,4 @@ main = true
 [modules.megaphone.hooks.after_rel]
 build = ["cargo", "build"]
 test = ["cargo", "test"]
+publish = ["cargo", "publish", "--dry-run", "--allow-dirty"]
