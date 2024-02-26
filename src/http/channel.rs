@@ -21,8 +21,10 @@ use crate::service::megaphone_service::MegaphoneService;
 pub async fn create_handler(
     State(svc): State<MegaphoneService<EventDto>>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorDto>)> {
-    let (agent_name, channel_id) = svc.create_channel().await?;
+    let (agent_name, channel_id, producer_address) = svc.create_channel().await?;
     Ok(Json(ChannelCreateResDto {
+        producer_address,
+        consumer_address: String::from(&channel_id),
         channel_id,
         agent_name,
     }))
@@ -74,7 +76,7 @@ pub async fn write_batch_handler(
         .map(|message| EventDto::new(message.stream_id, message.body))
         .collect();
 
-    let failures = svc.write_batch_into_channels(&body.channel_ids.into_iter().collect::<Vec<_>>()[..], messages).await;
+    let failures = svc.write_batch_into_channels(&body.channels.into_iter().collect::<Vec<_>>()[..], messages).await;
     Ok((StatusCode::CREATED, Json(WriteBatchResDto {
         failures,
     })))
@@ -85,7 +87,7 @@ pub async fn channel_exists_handler(
     Json(req): Json<ChanExistsReqDto>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorDto>)> {
     Ok(Json(ChanExistsResDto {
-        channel_ids: req.channel_ids.into_iter()
+        channels: req.channels.into_iter()
             .map(|id| (id.clone(), svc.channel_exists(&id)))
             .collect(),
     }))

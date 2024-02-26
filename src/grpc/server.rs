@@ -17,7 +17,7 @@ impl From<SyncEvent> for SyncRequest {
 impl From<SyncEvent> for megaphone::sync_request::SyncEvent {
     fn from(value: SyncEvent) -> Self {
         match value {
-            SyncEvent::PipeAgentStart { name } => Self::PipeAgentStart(megaphone::PipeAgentStart { agent_id: name }),
+            SyncEvent::PipeAgentStart { name, key } => Self::PipeAgentStart(megaphone::PipeAgentStart { agent_id: name, key: key.to_vec() }),
             SyncEvent::PipeAgentEnd { name } => Self::PipeAgentEnd(megaphone::PipeAgentEnd { agent_id: name }),
             SyncEvent::ChannelCreated { id } => Self::ChannelCreated(megaphone::ChannelCreated { channel_id: id }),
             SyncEvent::ChannelDisposed { id } => Self::ChannelDisposed(megaphone::ChannelDisposed { channel_id: id }),

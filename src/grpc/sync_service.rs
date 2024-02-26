@@ -45,7 +45,11 @@ impl SyncService for MegaphoneSyncService {
                     } else if let Some((name, props)) = self.agent_mgr.find_agent(&req.agent_id) {
                         log::warn!("agent-id {name} is already registered: {props:?}")
                     } else {
-                        let out = self.agent_mgr.open_replica_session(&req.agent_id);
+                        let key = req.key.try_into().map_err(|_err| {
+                            log::error!("Error parsing pipe key");
+                            Status::invalid_argument("Invalid pipe key")
+                        })?;
+                        let out = self.agent_mgr.open_replica_session(&req.agent_id, key);
                         if let Err(err) = out {
                             log::error!("Error opening pipe session - {err}");
                         } else {

@@ -19,6 +19,7 @@ message SyncRequest {
 
 message PipeAgentStart {
   string agent_id = 1;
+  bytes key = 2;
 }
 
 message PipeAgentEnd {

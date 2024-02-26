@@ -44,7 +44,10 @@ prost = "0.12"
 prost-types = "0.12.1"
 hex = "0.4.3"
 
-megaphone = "0.9.7"
+megaphone = "0.10"
+md5 = "0.7.0"
+ring = "0.17"
+base64 = "0.21.7"
 
 [features]
 bin-cli = [ "clap", "hyper"]

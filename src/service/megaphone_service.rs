@@ -29,6 +29,7 @@ pub const MESSAGES_UNROUTABLE_METRIC_NAME: &str = "megaphone_messages_unroutable
 pub const MESSAGES_LOST_METRIC_NAME: &str = "megaphone_messages_lost";
 
 pub struct BufferedChannel<Event> {
+    full_id: String,
     tx: Sender<Event>,
     rx: Arc<Mutex<Receiver<Event>>>,
     last_read: Arc<Mutex<SystemTime>>,
@@ -37,9 +38,10 @@ pub struct BufferedChannel<Event> {
 const EVT_BUFFER_SIZE: usize = 100;
 
 impl<Event> BufferedChannel<Event> {
-    fn new() -> Self {
+    fn new(full_id: &str) -> Self {
         let (tx, rx) = channel(EVT_BUFFER_SIZE);
         Self {
+            full_id: String::from(full_id),
             tx,
             rx: Arc::new(Mutex::new(rx)),
             last_read: Arc::new(Mutex::new(SystemTime::now())),
@@ -69,9 +71,27 @@ impl <Event> Drop for BufferedChannel<Event> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ChannelShortId(pub u128);
+impl ChannelShortId {
+    pub fn from_id_segment(s: &str) -> Self {
+        let hash = md5::compute(s.as_bytes());
+        let short_id = u128::from_be_bytes(hash.0);
+        Self(short_id)
+    }
+
+    pub fn from_full_id(id: &str) -> Result<Self, MegaphoneError> {
+        let channel_uid = id.split('.')
+            .nth(1)
+            .ok_or_else(|| MegaphoneError::BadRequest(format!("Malformed channel id '{id}'")))?;
+
+        Ok(Self::from_id_segment(channel_uid))
+    }
+}
+
 pub struct MegaphoneService<MessageData> {
     agents_manager: AgentsManagerService,
-    buffer: Arc<DashMap<String, BufferedChannel<MessageData>>>,
+    buffer: Arc<DashMap<ChannelShortId, BufferedChannel<MessageData>>>,
 }
 
 impl<Evt> Clone for MegaphoneService<Evt> {
@@ -90,34 +110,47 @@ impl<Event> MegaphoneService<Event> {
         Self { agents_manager, buffer: Default::default() }
     }
 
-    pub async fn create_channel(&self) -> Result<(String, String), MegaphoneError> {
+    pub async fn create_channel(&self) -> Result<(String, String, String), MegaphoneError> {
         let vagent_id = self.agents_manager.random_master_id()?.to_string();
 
-        let channel_id: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(50)
-            .map(char::from)
-            .collect();
+        let (channel_short_id, channel_full_id) = loop {
+            let channel_id: String = rand::thread_rng()
+                .sample_iter(&Alphanumeric)
+                .take(50)
+                .map(char::from)
+                .collect();
+
+            let short_id = ChannelShortId::from_id_segment(&channel_id);
+
+            if !self.buffer.contains_key(&short_id) {
+                break (short_id, channel_id);
+            }
+        };
 
         increment_counter!(CHANNEL_CREATED_METRIC_NAME);
 
-        let full_id = format!("{vagent_id}.{channel_id}.{}", Feature::new(megaphone::model::constants::features::CHAN_CHUNKED_STREAM).serialize());
+        let full_id = format!("{vagent_id}.{channel_full_id}.{}", Feature::new(megaphone::model::constants::features::CHAN_CHUNKED_STREAM).serialize());
+        let write_id = format!("{vagent_id}.{}", self.agents_manager.encrypt_channel_id(&vagent_id, channel_short_id)?);
 
-        self.buffer.insert(full_id.clone(), BufferedChannel::new());
-        Ok((vagent_id, full_id))
+        self.buffer.insert(channel_short_id,BufferedChannel::new(&full_id));
+        Ok((vagent_id, full_id, write_id))
     }
 
     pub async fn create_channel_with_id(&self, id: &str) -> Result<(), MegaphoneError> {
         increment_counter!(CHANNEL_CREATED_METRIC_NAME);
-        self.buffer.insert(id.to_string(), BufferedChannel::new());
+        self.buffer.insert(ChannelShortId::from_full_id(id)?, BufferedChannel::new(id));
         Ok(())
     }
 
     pub async fn read_channel(&self, id: String, timeout: Duration) -> Result<impl futures::stream::Stream<Item=Event>, MegaphoneError> {
         let deadline = Instant::now() + timeout;
-        let Some(channel) = self.buffer.get(&id) else {
+        let Some(channel) = self.buffer.get(&ChannelShortId::from_full_id(&id)?) else {
             return Err(MegaphoneError::NotFound);
         };
+        if channel.full_id.ne(&id) {
+            log::warn!("Short-id matches but full id doesn't. Given '{id}' found '{}'", channel.full_id);
+            return Err(MegaphoneError::NotFound);
+        }
         let Ok(rx_guard) = channel.rx.clone().try_lock_owned() else {
             log::error!("rx mutex already locked");
             return Err(MegaphoneError::Busy);
@@ -142,12 +175,18 @@ impl<Event> MegaphoneService<Event> {
     }
 
     pub fn channel_exists(&self, id: &str) -> bool {
-        self.buffer.contains_key(id)
+        match self.parse_full_id(id) {
+            Ok(channel_id) => self.buffer.contains_key(&channel_id),
+            Err(err) => {
+                log::warn!("Error parsing channel id '{id}' - {err}");
+                false
+            },
+        }
     }
 
     pub fn drop_expired(&self) {
         self.buffer
-            .retain(|channel_id, channel| {
+            .retain(|_channel_id, channel| {
                 let channel_not_expired = channel.last_read
                     .try_lock()
                     .map(|last_read| {
@@ -156,10 +195,10 @@ impl<Event> MegaphoneService<Event> {
                     })
                     .unwrap_or(true);
 
-                let keep_channel = channel_not_expired || channel_id.split('.').next()
+                let keep_channel = channel_not_expired || channel.full_id.split('.').next()
                     .and_then(|agent_id| self.agents_manager.is_agent_distributed(agent_id).ok())
                     .unwrap_or_else(|| {
-                        log::warn!("Could not determine if agent is distributed for channel {channel_id}");
+                        log::warn!("Could not determine if agent is distributed for channel '{}'", channel.full_id);
                         false
                     });
 
@@ -168,17 +207,25 @@ impl<Event> MegaphoneService<Event> {
     }
 
     pub fn drop_channel(&self, id: &str) -> Result<(), MegaphoneError> {
-        let Some((_id, _channel)) = self.buffer.remove(id) else {
-            return Err(MegaphoneError::InternalError(format!("Could not find channel with id {id}")))
-        };
-        Ok(())
+        match self.parse_full_id(id) {
+            Ok(channel_id) => {
+                let Some((_id, _channel)) = self.buffer.remove(&channel_id) else {
+                    return Err(MegaphoneError::InternalError(format!("Could not find channel with id {id}")))
+                };
+                Ok(())
+            }
+            Err(err) => {
+                log::warn!("Error parsing channel id '{id}' - {err}");
+                Err(MegaphoneError::BadRequest(format!("Malformed channel id '{id}'")))
+            }
+        }
     }
 
     pub fn channel_ids_by_agent<'a>(&'a self, name: &str) -> impl Iterator<Item=String> + 'a {
         let agent_prefix = format!("{name}.");
         self.buffer.iter()
-            .filter(move |channel| channel.key().starts_with(&agent_prefix))
-            .map(|channel| channel.key().to_string())
+            .filter(move |channel| channel.full_id.starts_with(&agent_prefix))
+            .map(|channel| channel.full_id.to_string())
     }
 
     pub fn list_channels<'a, C>(&'a self, skip: usize, limit: usize) -> anyhow::Result<Vec<C>>
@@ -187,7 +234,7 @@ impl<Event> MegaphoneService<Event> {
         C: FromStr<Err = anyhow::Error>
     {
         self.buffer.iter()
-            .map(|v| v.key().parse::<C>())
+            .map(|v| v.full_id.parse::<C>())
             .skip(skip)
             .take(limit)
             .collect::<Result<_, _>>()
@@ -196,8 +243,18 @@ impl<Event> MegaphoneService<Event> {
     pub fn count_by_agent(&self, agent: &str) -> usize {
         let prefix = format!("{agent}.");
         self.buffer.iter()
-            .filter(|entry| entry.key().starts_with(&prefix))
+            .filter(|entry| entry.full_id.starts_with(&prefix))
             .count()
+    }
+
+    fn parse_full_id(&self, full_id: &str) -> Result<ChannelShortId, MegaphoneError> {
+        let mut fragments = full_id.split('.');
+        let channel_id = fragments.next()
+            .and_then(|agent_id| fragments.next().map(|channel_id| (agent_id, channel_id)))
+            .filter(|(_, channel_id)| channel_id.len() != 50)
+            .map(|(agent_id, channel_id)| self.agents_manager.decrypt_channel_id(agent_id, channel_id))
+            .unwrap_or_else(|| ChannelShortId::from_full_id(full_id))?;
+        Ok(channel_id)
     }
 }
 
@@ -248,19 +305,22 @@ impl MegaphoneService<EventDto> {
         }
         results
     }
-    pub async fn write_into_channel(&self, id: &str, message: EventDto) -> Result<(), MegaphoneError> {
-        let Some(channel) = self.buffer.get(id) else {
+
+    pub async fn write_into_channel(&self, full_id: &str, message: EventDto) -> Result<(), MegaphoneError> {
+        let channel_id = self.parse_full_id(full_id)?;
+
+        let Some(channel) = self.buffer.get(&channel_id) else {
             increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
             return Err(MegaphoneError::NotFound);
         };
         increment_counter!(MESSAGES_RECEIVED_METRIC_NAME);
 
-        let pipes = id.split('.').next()
+        let pipes = channel.full_id.split('.').next()
             .map(|agent_id| self.agents_manager.get_pipes(agent_id))
             .unwrap_or_default();
 
         for pipe in &pipes {
-            let out = pipe.try_send(SyncEvent::EventReceived { channel: id.to_string(), event: message.clone() });
+            let out = pipe.try_send(SyncEvent::EventReceived { channel: full_id.to_string(), event: message.clone() });
             if let Err(err) = out {
                 log::error!("Error during event pipe - {err}");
             }
@@ -289,7 +349,7 @@ impl MegaphoneService<EventDto> {
     }
 
     pub fn inject_into_channel(&self, id: &str, message: EventDto) -> Result<(), MegaphoneError> {
-        let Some(channel) = self.buffer.get(id) else {
+        let Some(channel) = self.buffer.get(&ChannelShortId::from_full_id(id)?) else {
             increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
             return Err(MegaphoneError::NotFound);
         };

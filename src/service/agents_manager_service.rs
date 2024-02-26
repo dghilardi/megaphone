@@ -1,23 +1,28 @@
 use std::ops::Add;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
 use dashmap::DashMap;
 use dashmap::mapref::multiple::RefMulti;
 use lazy_static::lazy_static;
-use rand::seq::IteratorRandom;
-use tokio::sync::mpsc;
-
 use megaphone::dto::agent::VirtualAgentModeDto;
 use megaphone::dto::message::EventDto;
+use rand::random;
+use rand::seq::IteratorRandom;
+use ring::aead::{Aad, AES_256_GCM, LessSafeKey, Nonce, UnboundKey};
+use tokio::sync::mpsc;
 
 use crate::core::config::{AgentConfig, VirtualAgentMode};
 use crate::core::error::MegaphoneError;
+use crate::service::megaphone_service::ChannelShortId;
 
 pub const WARMUP_SECS: u64 = 60;
 
 #[derive(Debug, Clone)]
 pub struct VirtualAgentProps {
+    key: [u8; 32],
     change_ts: SystemTime,
     status: VirtualAgentStatus,
 }
@@ -25,6 +30,15 @@ pub struct VirtualAgentProps {
 impl VirtualAgentProps {
     pub fn new(mode: VirtualAgentStatus) -> Self {
         Self {
+            key: random(),
+            change_ts: SystemTime::now(),
+            status: mode,
+        }
+    }
+
+    pub fn new_with_key(mode: VirtualAgentStatus, key: [u8;32]) -> Self {
+        Self {
+            key,
             change_ts: SystemTime::now(),
             status: mode,
         }
@@ -148,9 +162,9 @@ impl AgentsManagerService {
         Ok(())
     }
 
-    pub fn open_replica_session(&self, name: &str) -> Result<(), MegaphoneError> {
+    pub fn open_replica_session(&self, name: &str, key: [u8;32]) -> Result<(), MegaphoneError> {
         let mut entry = self.virtual_agents.entry(String::from(name))
-            .or_insert_with(|| VirtualAgentProps::new(VirtualAgentStatus::Replica { pipe_sessions_count: 0 }));
+            .or_insert_with(|| VirtualAgentProps::new_with_key(VirtualAgentStatus::Replica { pipe_sessions_count: 0 }, key));
 
         let VirtualAgentStatus::Replica { ref mut pipe_sessions_count } = entry.status_mut() else {
             return Err(MegaphoneError::InternalError(format!("{name} agent is already registered but is not a replica")));
@@ -193,7 +207,7 @@ impl AgentsManagerService {
         let Some(mut agent) = self.virtual_agents.get_mut(name) else {
             return Err(MegaphoneError::BadRequest(format!("Agent {name} is not registered")))
         };
-        let Ok(()) = pipe.try_send(SyncEvent::PipeAgentStart { name: name.to_string() }) else {
+        let Ok(()) = pipe.try_send(SyncEvent::PipeAgentStart { name: name.to_string(), key: agent.key }) else {
             return Err(MegaphoneError::InternalError(format!("Error sending pipe registration event for agent {name}")))
         };
 
@@ -206,10 +220,70 @@ impl AgentsManagerService {
         agent.change_status(new_status);
         Ok(())
     }
+
+    pub fn encrypt_channel_id(&self, agent_id: &str, id: ChannelShortId) -> Result<String, MegaphoneError> {
+        let agent = self.virtual_agents.get(agent_id)
+            .ok_or(MegaphoneError::InternalError(format!("Agent {agent_id} is not registered")))?;
+
+        // Create a new AEAD key without a designated role or nonce sequence
+        let unbound_key = UnboundKey::new(&AES_256_GCM, &agent.key)
+            .map_err(|err| MegaphoneError::InternalError(format!("Cannot build the key - {err}")))?;
+
+        // Create a new NonceSequence type which generates nonces
+        let nonce: [u8; 12] = random();
+        let nonce_sequence = Nonce::assume_unique_for_key(nonce);
+
+        // Create a new AEAD key for encrypting and signing ("sealing"), bound to a nonce sequence
+        // The SealingKey can be used multiple times, each time a new nonce will be used
+        let sealing_key = LessSafeKey::new(unbound_key);
+
+        // Create a mutable copy of the data that will be encrypted in place
+        let mut data = id.0
+            .to_be_bytes()
+            .to_vec();
+
+        sealing_key.seal_in_place_append_tag(nonce_sequence,Aad::empty(), &mut data)
+            .map_err(|err| MegaphoneError::InternalError(format!("Cannot cipher key - {err}")))?;
+
+        log::debug!("nonce {:X?} data {:X?}", nonce, data);
+
+        let full_data = nonce.into_iter()
+            .chain(data)
+            .collect::<Vec<_>>();
+
+        Ok(URL_SAFE_NO_PAD.encode(full_data))
+    }
+
+    pub fn decrypt_channel_id(&self, agent_id: &str, input: &str) -> Result<ChannelShortId, MegaphoneError> {
+        let agent = self.virtual_agents.get(agent_id)
+            .ok_or(MegaphoneError::InternalError(format!("Agent {agent_id} is not registered")))?;
+
+        let data = URL_SAFE_NO_PAD.decode(input.as_bytes())
+            .map_err(|err| MegaphoneError::BadRequest(format!("Cannot deserialize {input} - {err}")))?;
+
+        log::debug!("nonce {:X?} data {:X?}", &data[..12], &data[12..]);
+
+        let nonce = data[..12].try_into()
+            .map_err(|v| MegaphoneError::InternalError(format!("Wrong IV size. Expected 12 - {v}")))?;
+
+        let unbound_key = UnboundKey::new(&AES_256_GCM, &agent.key)
+            .map_err(|err| MegaphoneError::InternalError(format!("Cannot create key - {err}")))?;
+
+        let nonce_sequence = Nonce::assume_unique_for_key(nonce);
+
+        let opening_key = LessSafeKey::new(unbound_key);
+
+        let mut data = data[12..].to_vec();
+
+        let decrypted = opening_key.open_in_place(nonce_sequence, Aad::empty(), &mut data)
+            .map_err(|err| MegaphoneError::BadRequest(format!("Cannot deserialize data - {err}")))?;
+
+        Ok(ChannelShortId(u128::from_be_bytes(decrypted.try_into().unwrap())))
+    }
 }
 
 pub enum SyncEvent {
-    PipeAgentStart { name: String },
+    PipeAgentStart { name: String, key: [u8;32] },
     PipeAgentEnd { name: String },
     ChannelCreated { id: String },
     ChannelDisposed { id: String },
