@@ -16,7 +16,7 @@ pub struct MegaphoneState<Evt> {
 
 impl <Evt> MegaphoneState<Evt> {
     pub fn build(app_config: MegaphoneConfig) -> Result<Self, MegaphoneError> {
-        let agents_manager = AgentsManagerService::new(app_config.agent.clone())?;
+        let agents_manager = AgentsManagerService::new(app_config.agent.clone(), app_config.agent_warmup_secs)?;
 
         Ok(MegaphoneState {
             megaphone_cfg: Arc::new(RwLock::new(app_config)),

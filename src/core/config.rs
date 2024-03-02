@@ -25,6 +25,8 @@ pub fn compose_config<'de, CFG: Deserialize<'de>>(external_path: &str, env_prefi
 
 #[derive(Deserialize)]
 pub struct MegaphoneConfig {
+    #[serde(default = "default_agent_warmup_secs")]
+    pub agent_warmup_secs: u64,
     #[serde(default = "default_address")]
     pub address: SocketAddr,
     #[serde(default = "default_grpc_address")]
@@ -35,6 +37,10 @@ pub struct MegaphoneConfig {
     pub agent: AgentConfig,
     #[serde(default = "default_poll_duration")]
     pub poll_duration_millis: u64,
+}
+
+fn default_agent_warmup_secs() -> u64 {
+    60
 }
 
 fn default_address() -> SocketAddr {
