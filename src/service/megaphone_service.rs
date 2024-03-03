@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::Add;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -16,6 +17,8 @@ use tokio::time::Instant;
 use megaphone::dto::channel::MessageDeliveryFailure;
 use megaphone::dto::message::EventDto;
 use megaphone::model::feature::Feature;
+use serde_json::json;
+use crate::core::config::{WebHook, WebHookType};
 
 use crate::core::error::MegaphoneError;
 use crate::service::agents_manager_service::{AgentsManagerService, SyncEvent};
@@ -90,6 +93,7 @@ impl ChannelShortId {
 }
 
 pub struct MegaphoneService<MessageData> {
+    webhooks: HashMap<String, WebHook>,
     agents_manager: AgentsManagerService,
     buffer: Arc<DashMap<ChannelShortId, BufferedChannel<MessageData>>>,
 }
@@ -97,6 +101,7 @@ pub struct MegaphoneService<MessageData> {
 impl<Evt> Clone for MegaphoneService<Evt> {
     fn clone(&self) -> Self {
         Self {
+            webhooks: self.webhooks.clone(),
             agents_manager: self.agents_manager.clone(),
             buffer: self.buffer.clone(),
         }
@@ -105,9 +110,10 @@ impl<Evt> Clone for MegaphoneService<Evt> {
 
 impl<Event> MegaphoneService<Event> {
     pub fn new(
+        webhooks: HashMap<String, WebHook>,
         agents_manager: AgentsManagerService,
     ) -> Self {
-        Self { agents_manager, buffer: Default::default() }
+        Self { webhooks, agents_manager, buffer: Default::default() }
     }
 
     pub async fn create_channel(&self) -> Result<(String, String, String), MegaphoneError> {
@@ -185,6 +191,7 @@ impl<Event> MegaphoneService<Event> {
     }
 
     pub fn drop_expired(&self) {
+        let mut deleted_channels = Vec::new();
         self.buffer
             .retain(|_channel_id, channel| {
                 let channel_not_expired = channel.last_read
@@ -202,7 +209,42 @@ impl<Event> MegaphoneService<Event> {
                         false
                     });
 
+                if !keep_channel {
+                    deleted_channels.push(channel.full_id.clone());
+                }
+
                 keep_channel
+            });
+        self.on_channels_deleted(deleted_channels);
+    }
+
+    fn on_channels_deleted(&self, deleted_channels: Vec<String>) {
+        self.webhooks.iter()
+            .filter(|(_, webhook)| matches!(webhook.hook, WebHookType::OnChannelDeleted))
+            .for_each(|(name, webhook)| {
+                let name = name.clone();
+                let url = webhook.endpoint.clone();
+                let body = json!({
+                    "channels": deleted_channels,
+                });
+
+                tokio::spawn(async move {
+                    let client = reqwest::Client::new();
+
+                    let response = client.post(url)
+                        .json(&body)
+                        .send()
+                        .await;
+
+                    match response {
+                        Err(err) => log::error!("Error processing webhook '{name}' - {err}"),
+                        Ok(response) => {
+                            if !response.status().is_success() {
+                                log::error!("Error processing webhook '{name}' - {}", response.status());
+                            }
+                        }
+                    }
+                });
             });
     }
 

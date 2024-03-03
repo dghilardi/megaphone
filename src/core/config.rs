@@ -37,6 +37,8 @@ pub struct MegaphoneConfig {
     pub agent: AgentConfig,
     #[serde(default = "default_poll_duration")]
     pub poll_duration_millis: u64,
+    #[serde(default)]
+    pub webhooks: HashMap<String, WebHook>,
 }
 
 fn default_agent_warmup_secs() -> u64 {
@@ -58,6 +60,17 @@ fn default_poll_duration() -> u64 {
     20_000
 }
 
+#[derive(Clone, Deserialize)]
+pub struct WebHook {
+    pub hook: WebHookType,
+    pub endpoint: String,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WebHookType {
+    OnChannelDeleted
+}
 #[derive(Clone, Deserialize)]
 pub struct AgentConfig {
     #[serde(rename = "virtual")]

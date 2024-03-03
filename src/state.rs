@@ -19,9 +19,9 @@ impl <Evt> MegaphoneState<Evt> {
         let agents_manager = AgentsManagerService::new(app_config.agent.clone(), app_config.agent_warmup_secs)?;
 
         Ok(MegaphoneState {
-            megaphone_cfg: Arc::new(RwLock::new(app_config)),
-            megaphone_svc: MegaphoneService::new(agents_manager.clone()),
+            megaphone_svc: MegaphoneService::new(app_config.webhooks.clone(), agents_manager.clone()),
             agents_manager_svc: agents_manager,
+            megaphone_cfg: Arc::new(RwLock::new(app_config)),
         })
     }
 }
