@@ -991,9 +991,9 @@ checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
 
 [[package]]
 name = "megaphone"
-version = "0.10.0"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae0f9c55270d0eb669dd0a60b32c2e5905119760a98673763668ad80c1a60e55"
+checksum = "2865e380161879bbafb251376c9e69318a56f5da4e3e703ea06a5861503c17eb"
 dependencies = [
  "anyhow",
  "chrono",
