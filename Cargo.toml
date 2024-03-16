@@ -30,7 +30,7 @@ dashmap = "5.4.0"
 
 axum = "0.6.20"
 hyperlocal = "0.8.0"
-metrics = "0.21.1"
+metrics = "0.22.1"
 metrics-exporter-prometheus = "0.13.0"
 lazy_static = "1.4.0"
 regex = "1.10.2"
