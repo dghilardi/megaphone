@@ -1,6 +1,6 @@
 [package]
 name = "megaphone-broker"
-version = "0.10.2"
+version = "0.10.3"
 edition = "2021"
 
 authors = ["Davide Ghilardi <dghila@d71.dev>"]
