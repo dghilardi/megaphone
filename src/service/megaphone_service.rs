@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
 use futures::FutureExt;
-use metrics::{histogram, increment_counter};
+use metrics::{counter, histogram};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
@@ -55,10 +55,10 @@ impl<Event> BufferedChannel<Event> {
 
 impl <Event> Drop for BufferedChannel<Event> {
     fn drop(&mut self) {
-        increment_counter!(CHANNEL_DISPOSED_METRIC_NAME);
+        counter!(CHANNEL_DISPOSED_METRIC_NAME).increment(1);
         if let Ok(created) = self.created_ts.try_lock() {
             if let Ok(duration) = SystemTime::now().duration_since(*created) {
-                histogram!(CHANNEL_DURATION_METRIC_NAME, duration.as_secs_f64());
+                histogram!(CHANNEL_DURATION_METRIC_NAME).record(duration.as_secs_f64());
             }
         } else {
             log::warn!("Could not lock created timestamp during channel dispose");
@@ -66,7 +66,7 @@ impl <Event> Drop for BufferedChannel<Event> {
 
         if let Ok(mut stream) = self.rx.try_lock() {
             while let Ok(_msg) = stream.try_recv() {
-                increment_counter!(MESSAGES_LOST_METRIC_NAME);
+                counter!(MESSAGES_LOST_METRIC_NAME).increment(1);
             }
         } else {
             log::warn!("Could not lock receiver during channel dispose");
@@ -133,7 +133,7 @@ impl<Event> MegaphoneService<Event> {
             }
         };
 
-        increment_counter!(CHANNEL_CREATED_METRIC_NAME);
+        counter!(CHANNEL_CREATED_METRIC_NAME).increment(1);
 
         let full_id = format!("{vagent_id}.{channel_full_id}.{}", Feature::new(megaphone::model::constants::features::CHAN_CHUNKED_STREAM).serialize());
         let write_id = format!("{vagent_id}.{}", self.agents_manager.encrypt_channel_id(&vagent_id, channel_short_id)?);
@@ -143,7 +143,7 @@ impl<Event> MegaphoneService<Event> {
     }
 
     pub async fn create_channel_with_id(&self, id: &str) -> Result<(), MegaphoneError> {
-        increment_counter!(CHANNEL_CREATED_METRIC_NAME);
+        counter!(CHANNEL_CREATED_METRIC_NAME).increment(1);
         self.buffer.insert(ChannelShortId::from_full_id(id)?, BufferedChannel::new(id));
         Ok(())
     }
@@ -169,7 +169,7 @@ impl<Event> MegaphoneService<Event> {
             let next = tokio::time::timeout_at(deadline, rx_guard.recv()).await;
             match next {
                 Ok(Some(msg)) => {
-                    increment_counter!(MESSAGES_SENT_METRIC_NAME);
+                    counter!(MESSAGES_SENT_METRIC_NAME).increment(1);
                     Some((msg, (rx_guard, ts_guard)))
                 }
                 Ok(None) | Err(_) => {
@@ -352,10 +352,10 @@ impl MegaphoneService<EventDto> {
         let channel_id = self.parse_full_id(full_id)?;
 
         let Some(channel) = self.buffer.get(&channel_id) else {
-            increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
+            counter!(MESSAGES_UNROUTABLE_METRIC_NAME).increment(1);
             return Err(MegaphoneError::NotFound);
         };
-        increment_counter!(MESSAGES_RECEIVED_METRIC_NAME);
+        counter!(MESSAGES_RECEIVED_METRIC_NAME).increment(1);
 
         let pipes = channel.full_id.split('.').next()
             .map(|agent_id| self.agents_manager.get_pipes(agent_id))
@@ -392,10 +392,10 @@ impl MegaphoneService<EventDto> {
 
     pub fn inject_into_channel(&self, id: &str, message: EventDto) -> Result<(), MegaphoneError> {
         let Some(channel) = self.buffer.get(&ChannelShortId::from_full_id(id)?) else {
-            increment_counter!(MESSAGES_UNROUTABLE_METRIC_NAME);
+            counter!(MESSAGES_UNROUTABLE_METRIC_NAME).increment(1);
             return Err(MegaphoneError::NotFound);
         };
-        increment_counter!(MESSAGES_RECEIVED_METRIC_NAME);
+        counter!(MESSAGES_RECEIVED_METRIC_NAME).increment(1);
         match channel.tx.try_send(message) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(message)) => {
@@ -417,12 +417,12 @@ impl<Event: WithTimestamp> BufferedChannel<Event> {
         let now = SystemTime::now();
         let _skipped = rx.try_recv();
         // Skip first event to preserve one slot
-        increment_counter!(MESSAGES_LOST_METRIC_NAME);
+        counter!(MESSAGES_LOST_METRIC_NAME).increment(1);
         while let Ok(evt) = rx.try_recv() {
             if evt.timestamp().add(Duration::from_secs(60)).gt(&now) {
                 buffered_evts.push(evt);
             } else {
-                increment_counter!(MESSAGES_LOST_METRIC_NAME);
+                counter!(MESSAGES_LOST_METRIC_NAME).increment(1);
             }
         }
         buffered_evts.push(event);
