@@ -10,7 +10,7 @@ use futures::StreamExt;
 use tokio::sync::RwLock;
 
 use megaphone::dto::agent::{BasicOutcomeDto, OutcomeStatus};
-use megaphone::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateResDto, ChannelInfoDto, ChannelsListParams, WriteBatchReqDto, WriteBatchResDto};
+use megaphone::dto::channel::{ChanExistsReqDto, ChanExistsResDto, ChannelCreateReqDto, ChannelCreateResDto, ChannelInfoDto, ChannelsListParams, WriteBatchReqDto, WriteBatchResDto};
 use megaphone::dto::error::ErrorDto;
 use megaphone::dto::message::EventDto;
 
@@ -20,13 +20,16 @@ use crate::service::megaphone_service::MegaphoneService;
 
 pub async fn create_handler(
     State(svc): State<MegaphoneService<EventDto>>,
+    body_opt: Option<Json<ChannelCreateReqDto>>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorDto>)> {
-    let (agent_name, channel_id, producer_address) = svc.create_channel().await?;
+    let Json(req) = body_opt.unwrap_or_default();
+    let (agent_name, channel_id, producer_address, protocols) = svc.create_channel(&req.protocols).await?;
     Ok(Json(ChannelCreateResDto {
         producer_address,
         consumer_address: String::from(&channel_id),
         channel_id,
         agent_name,
+        protocols,
     }))
 }
 

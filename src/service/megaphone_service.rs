@@ -16,6 +16,7 @@ use tokio::time::Instant;
 
 use megaphone::dto::channel::MessageDeliveryFailure;
 use megaphone::dto::message::EventDto;
+use megaphone::model::constants::protocols;
 use megaphone::model::feature::Feature;
 use serde_json::json;
 use crate::core::config::{WebHook, WebHookType};
@@ -116,7 +117,10 @@ impl<Event> MegaphoneService<Event> {
         Self { webhooks, agents_manager, buffer: Default::default() }
     }
 
-    pub async fn create_channel(&self) -> Result<(String, String, String), MegaphoneError> {
+    pub async fn create_channel(&self, supported_protocols: &[String]) -> Result<(String, String, String, Vec<String>), MegaphoneError> {
+        if !supported_protocols.is_empty() && !supported_protocols.contains(&String::from(protocols::HTTP_STREAM_NDJSON_V1)) {
+            return Err(MegaphoneError::BadRequest(format!("protocol(s) {:?} are not supported", supported_protocols)))
+        }
         let vagent_id = self.agents_manager.random_master_id()?.to_string();
 
         let (channel_short_id, channel_full_id) = loop {
@@ -139,7 +143,7 @@ impl<Event> MegaphoneService<Event> {
         let write_id = format!("{vagent_id}.{}", self.agents_manager.encrypt_channel_id(&vagent_id, channel_short_id)?);
 
         self.buffer.insert(channel_short_id,BufferedChannel::new(&full_id));
-        Ok((vagent_id, full_id, write_id))
+        Ok((vagent_id, full_id, write_id, vec![String::from(protocols::HTTP_STREAM_NDJSON_V1)]))
     }
 
     pub async fn create_channel_with_id(&self, id: &str) -> Result<(), MegaphoneError> {
