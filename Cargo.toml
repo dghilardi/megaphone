@@ -59,3 +59,8 @@ required-features = ["bin-cli"]
 
 [build-dependencies]
 tonic-build = "0.11"
+
+[dev-dependencies.testcontainers]
+# version = "0.15.0"
+git = "https://github.com/dghilardi/testcontainers-rs.git"
+branch = "feature/userns"
