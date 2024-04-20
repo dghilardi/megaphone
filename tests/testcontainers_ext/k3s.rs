@@ -3,8 +3,8 @@ use testcontainers::{Image, ImageArgs};
 
 const NAME: &str = "rancher/k3s";
 const TAG: &str = "v1.28.8-k3s1";
-const KUBE_SECURE_PORT: u16 = 6443;
-const RANCHER_WEBHOOK_PORT: u16 = 8443;
+pub const KUBE_SECURE_PORT: u16 = 6443;
+pub const RANCHER_WEBHOOK_PORT: u16 = 8443;
 
 #[derive(Debug, Default, Clone)]
 pub struct K3s;
