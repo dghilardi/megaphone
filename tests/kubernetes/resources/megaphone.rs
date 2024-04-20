@@ -55,6 +55,11 @@ pub fn megaphone_sts(replicas: i32) -> StatefulSet {
                                     ..Default::default()
                                 }),
                             },
+                            EnvVar {
+                                name: String::from("megaphone_agent_warmup_secs"),
+                                value: Some(String::from("0")),
+                                ..Default::default()
+                            },
                         ]),
                         ..Default::default()
                     }],
