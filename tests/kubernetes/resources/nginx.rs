@@ -19,6 +19,14 @@ pub fn nginx_configmap() -> ConfigMap {
                         try_files $uri $uri/ /index.html;
 
                     }
+                    location ~ /create {
+                        resolver kube-dns.kube-system.svc.cluster.local;
+                        proxy_pass http://megaphone-service.default.svc.cluster.local:3000;
+                    }
+                    location ~ /write {
+                        resolver kube-dns.kube-system.svc.cluster.local;
+                        proxy_pass http://megaphone-service.default.svc.cluster.local:3000;
+                    }
                     location ~ ^/read/([A-Za-z0-9_\-]+)\.([A-Za-z0-9_\-]+)$ {
                         resolver kube-dns.kube-system.svc.cluster.local;
 
