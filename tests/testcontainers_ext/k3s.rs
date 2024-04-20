@@ -3,6 +3,7 @@ use testcontainers::{Image, ImageArgs};
 
 const NAME: &str = "rancher/k3s";
 const TAG: &str = "v1.28.8-k3s1";
+pub const TRAEFIK_HTTP: u16 = 80;
 pub const KUBE_SECURE_PORT: u16 = 6443;
 pub const RANCHER_WEBHOOK_PORT: u16 = 8443;
 
@@ -39,6 +40,6 @@ impl Image for K3s {
     }
 
     fn expose_ports(&self) -> Vec<u16> {
-        vec![KUBE_SECURE_PORT, RANCHER_WEBHOOK_PORT]
+        vec![KUBE_SECURE_PORT, RANCHER_WEBHOOK_PORT, TRAEFIK_HTTP]
     }
 }

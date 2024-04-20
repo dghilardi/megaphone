@@ -1,5 +1,5 @@
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
-use k8s_openapi::api::core::v1::{ConfigMap, ConfigMapVolumeSource, Container, ContainerPort, PodSpec, PodTemplateSpec, Volume, VolumeMount};
+use k8s_openapi::api::core::v1::{ConfigMap, ConfigMapVolumeSource, Container, ContainerPort, PodSpec, PodTemplateSpec, Service, ServicePort, ServiceSpec, Volume, VolumeMount};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 
 pub fn nginx_configmap() -> ConfigMap {
@@ -59,7 +59,7 @@ pub fn nginx_deployment() -> Deployment {
                 spec: Some(PodSpec {
                     containers: vec![Container {
                         name: String::from("nginx"),
-                        image: Some(String::from("nginx:1.25.5")),
+                        image: Some(String::from("nginx:1.25.5-alpine")),
                         ports: Some(vec![ContainerPort { container_port: 80, ..Default::default() }]),
                         volume_mounts: Some(vec![VolumeMount {
                             name: String::from("nginx-config"),
@@ -80,6 +80,29 @@ pub fn nginx_deployment() -> Deployment {
                 }),
                 ..Default::default()
             },
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+pub fn nginx_svc() -> Service {
+    Service {
+        metadata: ObjectMeta {
+            name: Some(String::from("nginx-service")),
+            ..Default::default()
+        },
+        spec: Some(ServiceSpec {
+            ports: Some(vec![
+                ServicePort {
+                    name: Some(String::from("http")),
+                    port: 80,
+                    ..Default::default()
+                }
+            ]),
+            selector: Some([
+                (String::from("app"), String::from("nginx")),
+            ].into_iter().collect()),
             ..Default::default()
         }),
         ..Default::default()
