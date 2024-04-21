@@ -37,7 +37,7 @@ pub fn build_images(airgap_dir: &Path) -> anyhow::Result<()> {
             .arg("build")
             .arg("-f")
             .arg(dockerfile_path)
-            .arg(".")
+            .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")))
             .arg("-t")
             .arg(MEGAPHONE_IMAGE_NAME)
         )?;
