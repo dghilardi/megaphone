@@ -23,9 +23,9 @@ pub fn nginx_configmap() -> ConfigMap {
                         resolver kube-dns.kube-system.svc.cluster.local;
                         proxy_pass http://megaphone-service.default.svc.cluster.local:3000;
                     }
-                    location ~ ^/write/([A-Za-z0-9_\-]+)\.([A-Za-z0-9_\-.]+)/([A-Za-z0-9_\-]+) {
+                    location ~ ^/write/([A-Za-z0-9_\-]+)\.([A-Za-z0-9_\-]+)/([A-Za-z0-9_\-]+)$ {
                         resolver kube-dns.kube-system.svc.cluster.local;
-                        proxy_pass http://$1.megaphone-headless.default.svc.cluster.local:3000/$1.$2/$3;
+                        proxy_pass http://$1.megaphone-headless.default.svc.cluster.local:3000/write/$1.$2/$3;
                     }
                     location ~ ^/read/([A-Za-z0-9_\-]+)\.([A-Za-z0-9_\-.]+)$ {
                         resolver kube-dns.kube-system.svc.cluster.local;
