@@ -1,35 +1,49 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::string::FromUtf8Error;
 use anyhow::Context;
 use crate::docker::image::MEGAPHONE_IMAGE_NAME;
+
+fn run_command(command: &mut Command) -> anyhow::Result<()> {
+    let out = command.output()?;
+    if out.stdout.len() > 0 {
+        match String::from_utf8(out.stdout) {
+            Ok(msg) => println!("[{}] {msg}", command.get_program().to_str().unwrap_or_default()),
+            Err(err) => eprintln!("Could not parse stderr - {err}"),
+        }
+
+    }
+    if out.stderr.len() > 0 {
+        match String::from_utf8(out.stderr) {
+            Ok(msg) => eprintln!("[{}] {msg}", command.get_program().to_str().unwrap_or_default()),
+            Err(err) => eprintln!("Could not parse stderr - {err}"),
+        }
+    }
+    if !out.status.success() {
+        anyhow::bail!("Command execution failed with code {:?}", out.status);
+    }
+    Ok(())
+}
 
 pub fn build_images(airgap_dir: &Path) -> anyhow::Result<()> {
     let out_file = airgap_dir.join("megaphone.tar");
     if !out_file.is_file() {
-        Command::new("docker")
+        run_command(Command::new("docker")
             .arg("build")
             .arg("-f")
             .arg("dockerfile/Dockerfile")
             .arg(".")
             .arg("-t")
             .arg(MEGAPHONE_IMAGE_NAME)
-            .output()
-            .context("Error building megaphone image")?;
+        )?;
 
-        Command::new("docker")
+        run_command(Command::new("docker")
             .arg("save")
             .arg(MEGAPHONE_IMAGE_NAME)
             .arg("-o")
             .arg(out_file.clone())
-            .output()
-            .context("Error saving megaphone image")?;
-
-        Command::new("chmod")
-            .arg("a+r")
-            .arg(out_file)
-            .output()
-            .context("Error changing permissions")?;
+        )?;
     }
 
     println!("Airgap images:");
