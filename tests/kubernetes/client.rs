@@ -31,3 +31,14 @@ pub async fn get_kube_client(container: &Container<'_, K3s>) -> anyhow::Result<C
 
     Ok(client)
 }
+
+pub async fn print_images(container: &Container<'_, K3s>) -> anyhow::Result<()> {
+    let out = container.exec(ExecCommand { cmd: String::from("crictl images"), ready_conditions: vec![] });
+
+    let out_str = String::from_utf8(out.stdout)
+        .context("Error parsing stdout to string")?;
+
+    println!("{}", out_str);
+
+    Ok(())
+}
