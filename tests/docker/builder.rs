@@ -19,8 +19,14 @@ pub fn build_images(airgap_dir: &Path) {
             .arg("save")
             .arg(MEGAPHONE_IMAGE_NAME)
             .arg("-o")
-            .arg(out_file)
+            .arg(out_file.clone())
             .output()
             .expect("Error saving megaphone image");
+
+        Command::new("chmod")
+            .arg("a+r")
+            .arg(out_file)
+            .output()
+            .expect("Error changing permissions");
     }
 }
