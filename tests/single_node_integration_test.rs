@@ -3,6 +3,7 @@ use lazy_static::lazy_static;
 use megaphone::dto::agent::OutcomeStatus;
 use megaphone::dto::channel::ChannelCreateReqDto;
 use megaphone::model::constants::protocols::HTTP_STREAM_NDJSON_V1;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use testcontainers::clients::Cli;
 use testcontainers::Container;
@@ -75,4 +76,38 @@ async fn channel_write() {
     ).await.expect("Error writing to channel");
 
     assert!(matches!(write_res.status, OutcomeStatus::Ok))
+}
+
+#[tokio::test]
+#[serial_test::serial]
+async fn channel_read_write() {
+    #[derive(Serialize, Deserialize)]
+    struct TestMessage {
+        message: String,
+    }
+
+    let container = get_container()
+        .await
+        .expect("Error creating megaphone cluster");
+
+    let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP));
+    let create_res = client.create(&ChannelCreateReqDto {
+        protocols: vec![String::from(HTTP_STREAM_NDJSON_V1)],
+    }).await.expect("Error during new channel creation");
+
+    let write_res = client.write(
+        &create_res.producer_address,
+        "test",
+        &TestMessage { message: String::from("Hello world") }
+    ).await.expect("Error writing to channel");
+
+    assert!(matches!(write_res.status, OutcomeStatus::Ok));
+
+    let read_res = client.read(&create_res.consumer_address)
+        .await
+        .expect("Error reading from channel");
+
+    assert_eq!(String::from("test"), read_res.stream_id);
+    let parsed_body = serde_json::from_value::<TestMessage>(read_res.body).expect("Cannot parse body");
+    assert_eq!(String::from("Hello world"), parsed_body.message);
 }
