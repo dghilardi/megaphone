@@ -30,7 +30,9 @@ impl MegaphoneRestClient {
                 .await
                 .context("Error parsing response")
         } else {
-            anyhow::bail!("Http failed with {}", resp.status())
+            let status = resp.status();
+            eprintln!("HTTP error {status} - {}", resp.text().await.unwrap_or_else(|err| err.to_string()));
+            anyhow::bail!("Http failed with {status}")
         }
     }
 
@@ -41,14 +43,16 @@ impl MegaphoneRestClient {
             .send()
             .await
             .context("Error during channel write")?;
-        
+
         if resp.status().is_success() {
             resp
                 .json()
                 .await
                 .context("Error parsing response")
         } else {
-            anyhow::bail!("Http failed with {}", resp.status())
+            let status = resp.status();
+            eprintln!("HTTP error {status} - {}", resp.text().await.unwrap_or_else(|err| err.to_string()));
+            anyhow::bail!("Http failed with {status}")
         }
     }
 }
