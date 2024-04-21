@@ -29,10 +29,14 @@ fn run_command(command: &mut Command) -> anyhow::Result<()> {
 pub fn build_images(airgap_dir: &Path) -> anyhow::Result<()> {
     let out_file = airgap_dir.join("megaphone.tar");
     if !out_file.is_file() {
+        let dockerfile_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("docker")
+            .join("Dockerfile");
+
         run_command(Command::new("docker")
             .arg("build")
             .arg("-f")
-            .arg("dockerfile/Dockerfile")
+            .arg(dockerfile_path)
             .arg(".")
             .arg("-t")
             .arg(MEGAPHONE_IMAGE_NAME)
