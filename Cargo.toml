@@ -48,7 +48,7 @@ megaphone = "0.10"
 md5 = "0.7.0"
 ring = "0.17"
 base64 = "0.21.7"
-reqwest = { version = "0.11.24", features = ["json"] }
+reqwest = { version = "0.12.4", features = ["json"] }
 
 [features]
 bin-cli = [ "clap", "hyper"]

@@ -1,8 +1,9 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use crate::docker::image::MEGAPHONE_IMAGE_NAME;
 
-pub fn build_images(out_file: PathBuf) {
+pub fn build_images(airgap_dir: &Path) {
+    let out_file = airgap_dir.join("megaphone.tar");
     if !out_file.is_file() {
         Command::new("docker")
             .arg("build")

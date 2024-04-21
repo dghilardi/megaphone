@@ -18,35 +18,49 @@ use crate::kubernetes::client::get_kube_client;
 use crate::testcontainers_ext::k3s::K3s;
 
 async fn wait_cluster_ready(client: &Client) -> anyhow::Result<()> {
-    let mut stream = watcher(Api::<Pod>::default_namespaced(client.clone()), Default::default())
+    let mut stream = watcher(Api::<Pod>::all(client.clone()), Default::default())
         .applied_objects()
         .boxed();
 
     let min_ts = SystemTime::now() + Duration::from_secs(5);
+    let deadline_ts = SystemTime::now() + Duration::from_secs(600);
+    let mut last_state_update = SystemTime::now();
     let mut pods_status = HashMap::new();
 
-    while let Some(evt) = stream.next().await {
+    while let Some(evt) = tokio::time::timeout(Duration::from_secs(10), stream.next()).await.transpose() {
         match evt {
-            Ok(evt) => {
+            Ok(Ok(evt)) => {
                 let pod: Pod = evt;
                 if let Some(phase) = pod.status.as_ref().and_then(|status| status.phase.clone()) {
                     pods_status.insert(pod.name_any(), phase);
-                }
-                if min_ts < SystemTime::now()
-                    && pods_status.values().all(|phase| phase.eq_ignore_ascii_case("Running")) {
-                    return Ok(())
+                    last_state_update = SystemTime::now();
                 }
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 anyhow::bail!("Received error during watch - {err}")
             }
+            Err(_err) => {
+                log::debug!("Timeout")
+            }
+        }
+
+        if deadline_ts < SystemTime::now() {
+            anyhow::bail!("Deadline reached - pods status: {pods_status:?}");
+        } else if min_ts < SystemTime::now()
+            && last_state_update + Duration::from_secs(10) < SystemTime::now()
+            && pods_status.values().all(|phase| phase.eq_ignore_ascii_case("Running") || phase.eq_ignore_ascii_case("Succeeded")) {
+            return Ok(())
+        } else if pods_status.values().any(|phase| phase.eq_ignore_ascii_case("Failed")) {
+            anyhow::bail!("Cluster contains failed pods")
+        } else if pods_status.values().any(|phase| phase.eq_ignore_ascii_case("Unknown")) {
+            anyhow::bail!("Cluster contains pods in unknown state")
         }
     }
     anyhow::bail!("Stream terminated before all pod running")
 }
 
 pub async fn prepare_cluster<'a>(docker: &'a Cli, airgap_dir: &Path) -> anyhow::Result<Container<'a, K3s>> {
-    docker::builder::build_images(airgap_dir.join("k3s-airgap-images-amd64.tar"));
+    docker::builder::build_images(airgap_dir);
 
     let k3s = RunnableImage::from(K3s::default())
         .with_privileged(true)
