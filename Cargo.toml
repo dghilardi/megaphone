@@ -28,7 +28,7 @@ futures = { version = "0.3.25" }
 
 dashmap = "5.4.0"
 
-axum = "0.6.20"
+axum = "0.7.5"
 hyperlocal = "0.8.0"
 metrics = "0.22.0"
 metrics-exporter-prometheus = "0.13.0"
