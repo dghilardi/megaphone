@@ -171,3 +171,94 @@ async fn channel_multi_read_write() {
         .expect("Error joinhandle await")
         .expect("Error in producer result");
 }
+
+#[tokio::test]
+#[serial_test::serial]
+async fn channel_multi_read_write_multi_stream() {
+    #[derive(Serialize, Deserialize)]
+    struct TestMessage {
+        timestamp: DateTime<Utc>,
+        idx: i32,
+    }
+
+    let container = get_container()
+        .await
+        .expect("Error creating megaphone cluster");
+
+    let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP));
+    let create_res = client.create(&ChannelCreateReqDto {
+        protocols: vec![String::from(HTTP_STREAM_NDJSON_V1)],
+    }).await.expect("Error during new channel creation");
+
+    let producer_handle: JoinHandle<anyhow::Result<()>> = tokio::task::spawn(async move {
+        for idx in 0..100 {
+            let stream_id = if idx % 2 == 0 {
+                "even"
+            } else {
+                "odd"
+            };
+
+            let write_res = client.write(
+                &create_res.producer_address,
+                stream_id,
+                &TestMessage { idx, timestamp: Utc::now() }
+            ).await?;
+
+            assert!(matches!(write_res.status, OutcomeStatus::Ok));
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        Ok(())
+    });
+
+    let mut read_client = MegaphoneClient::new(&format!("http://localhost:{}/read", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP)), 100);
+    let channel = create_res.consumer_address.to_string();
+    let mut even_stream = read_client.new_unbounded_stream(move |_chan| {
+        futures::future::ok::<_, anyhow::Error>(StreamSpec { channel: channel.clone(), streams: vec![String::from("even")] })
+    }).await.expect("Error initializing read stream");
+    let channel = create_res.consumer_address.to_string();
+    let mut odd_stream = read_client.new_unbounded_stream(move |_chan| {
+        futures::future::ok::<_, anyhow::Error>(StreamSpec { channel: channel.clone(), streams: vec![String::from("odd")] })
+    }).await.expect("Error initializing read stream");
+
+    let even_consumer_handle: JoinHandle<anyhow::Result<()>> = tokio::task::spawn(async move {
+        let mut expected_even_idx = 0;
+        while let Some(evt_res) = even_stream.next().await {
+            let evt: TestMessage = evt_res.context("Error in read event processing")?;
+            assert_eq!(expected_even_idx, evt.idx);
+            assert!(evt.timestamp + Duration::from_secs(1) > Utc::now());
+            expected_even_idx += 2;
+            if expected_even_idx >= 100 {
+                break;
+            }
+        }
+        Ok(())
+    });
+
+    let odd_consumer_handle: JoinHandle<anyhow::Result<()>> = tokio::task::spawn(async move {
+        let mut expected_odd_idx = 1;
+        while let Some(evt_res) = odd_stream.next().await {
+            let evt: TestMessage = evt_res.context("Error in read event processing")?;
+            assert_eq!(expected_odd_idx, evt.idx);
+            assert!(evt.timestamp + Duration::from_secs(1) > Utc::now());
+            expected_odd_idx += 2;
+            if expected_odd_idx >= 100 {
+                break;
+            }
+        }
+        Ok(())
+    });
+
+    producer_handle
+        .await
+        .expect("Error joinhandle await")
+        .expect("Error in producer result");
+    odd_consumer_handle
+        .await
+        .expect("Error joinhandle await")
+        .expect("Error in odd consumer result");
+    even_consumer_handle
+        .await
+        .expect("Error joinhandle await")
+        .expect("Error in even consumer result");
+}
