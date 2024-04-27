@@ -178,15 +178,57 @@ async fn channel_multi_read_write() {
 #[tokio::test]
 #[serial_test::serial]
 async fn channel_multi_read_write_multi_stream() {
+    let container = get_container()
+        .await
+        .expect("Error creating megaphone cluster");
+
+    let (producer_handle, even_consumer_handle, odd_consumer_handle) = verify_multi_stream_rw(&container, Duration::from_millis(500)).await;
+
+    producer_handle
+        .await
+        .expect("Error joinhandle await")
+        .expect("Error in producer result");
+    odd_consumer_handle
+        .await
+        .expect("Error joinhandle await")
+        .expect("Error in odd consumer result");
+    even_consumer_handle
+        .await
+        .expect("Error joinhandle await")
+        .expect("Error in even consumer result");
+}
+
+#[tokio::test]
+#[serial_test::serial]
+async fn multi_channel_multi_read_write_multi_stream() {
+    let container = get_container()
+        .await
+        .expect("Error creating megaphone cluster");
+
+    let channels_count = 10;
+    let mut handles = Vec::with_capacity(channels_count * 3);
+
+    for _ in 0..channels_count {
+        let (producer_handle, even_consumer_handle, odd_consumer_handle) = verify_multi_stream_rw(&container, Duration::from_millis(0)).await;
+        handles.push(producer_handle);
+        handles.push(even_consumer_handle);
+        handles.push(odd_consumer_handle);
+    }
+
+    futures::future::try_join_all(handles)
+        .await
+        .expect("Error joinhandle await")
+        .into_iter()
+        .collect::<anyhow::Result<Vec<()>>>()
+        .expect("Error in spawned task");
+}
+
+async fn verify_multi_stream_rw(container: &Container<'_, K3s>, msg_delay: Duration) -> (JoinHandle<anyhow::Result<()>>, JoinHandle<anyhow::Result<()>>, JoinHandle<anyhow::Result<()>>) {
     #[derive(Serialize, Deserialize)]
     struct TestMessage {
         timestamp: DateTime<Utc>,
         idx: i32,
     }
-
-    let container = get_container()
-        .await
-        .expect("Error creating megaphone cluster");
 
     let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP));
     let create_res = client.create(&ChannelCreateReqDto {
@@ -209,7 +251,7 @@ async fn channel_multi_read_write_multi_stream() {
 
             assert!(matches!(write_res.status, OutcomeStatus::Ok));
 
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(msg_delay).await;
         }
         Ok(())
     });
@@ -251,17 +293,5 @@ async fn channel_multi_read_write_multi_stream() {
         }
         Ok(())
     });
-
-    producer_handle
-        .await
-        .expect("Error joinhandle await")
-        .expect("Error in producer result");
-    odd_consumer_handle
-        .await
-        .expect("Error joinhandle await")
-        .expect("Error in odd consumer result");
-    even_consumer_handle
-        .await
-        .expect("Error joinhandle await")
-        .expect("Error in even consumer result");
+    (producer_handle, even_consumer_handle, odd_consumer_handle)
 }
