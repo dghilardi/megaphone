@@ -10,10 +10,10 @@ use megaphone::model::constants::protocols::HTTP_STREAM_NDJSON_V1;
 use serde::{Deserialize, Serialize};
 use serde_json::de::Read;
 use serde_json::json;
-use testcontainers::clients::Cli;
 use testcontainers::Container;
 use tokio::task::JoinHandle;
 use futures::StreamExt;
+use anyhow::Context;
 
 use crate::client::MegaphoneRestClient;
 use crate::kubernetes::cluster::prepare_cluster;
@@ -28,16 +28,14 @@ mod client;
 lazy_static! {
     static ref AIRGAP_DIR: tempfile::TempDir = tempfile::tempdir().expect("Error creating airgap temp dir");
     static ref K3S_CONF_DIR: tempfile::TempDir = tempfile::tempdir().expect("Error creating conf temp dir");
-
-    static ref DOCKER: Cli = Cli::default();
 }
-static CONTAINER: OnceLock<Container<'static, K3s>> = OnceLock::new();
+static CONTAINER: OnceLock<Container<K3s>> = OnceLock::new();
 
-async fn get_container() -> anyhow::Result<&'static Container<'static, K3s>> {
+async fn get_container() -> anyhow::Result<&'static Container<K3s>> {
     let result = if let Some(container) = CONTAINER.get() {
         container
     } else {
-        let container = prepare_cluster(&DOCKER, AIRGAP_DIR.path()).await?;
+        let container = prepare_cluster(AIRGAP_DIR.path()).await?;
         CONTAINER.set(container)
             .map_err(|_| anyhow::anyhow!("Cannot set oncelock"))?;
         let container = CONTAINER.get()

@@ -6,8 +6,8 @@ use testcontainers::core::ExecCommand;
 use crate::testcontainers_ext::k3s;
 use crate::testcontainers_ext::k3s::K3s;
 
-pub async fn get_kube_client(container: &Container<'_, K3s>) -> anyhow::Result<Client> {
-    let out = container.exec(ExecCommand { cmd: String::from("cat /etc/rancher/k3s/k3s.yaml"), ready_conditions: vec![] });
+pub async fn get_kube_client(container: &Container<K3s>) -> anyhow::Result<Client> {
+    let out = container.exec(ExecCommand::new(vec![String::from("cat"), String::from("/etc/rancher/k3s/k3s.yaml")]));
 
     let conf_yaml = String::from_utf8(out.stdout)
         .context("Error parsing stdout to string")?;
@@ -32,7 +32,7 @@ pub async fn get_kube_client(container: &Container<'_, K3s>) -> anyhow::Result<C
     Ok(client)
 }
 
-pub async fn print_images(container: &Container<'_, K3s>) -> anyhow::Result<()> {
+pub async fn print_images(container: &Container<K3s>) -> anyhow::Result<()> {
     let out = container.exec(ExecCommand { cmd: String::from("crictl images"), ready_conditions: vec![] });
 
     let out_str = String::from_utf8(out.stdout)

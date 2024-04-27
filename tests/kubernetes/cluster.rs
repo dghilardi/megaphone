@@ -11,7 +11,7 @@ use kube::{Api, Client, ResourceExt};
 use kube::api::PostParams;
 use kube::runtime::{watcher, WatchStreamExt};
 use testcontainers::{Container, RunnableImage};
-use testcontainers::clients::Cli;
+use testcontainers::runners::SyncRunner;
 
 use crate::{docker, kubernetes};
 use crate::kubernetes::client::{get_kube_client, print_images};
@@ -59,16 +59,15 @@ async fn wait_cluster_ready(client: &Client) -> anyhow::Result<()> {
     anyhow::bail!("Stream terminated before all pod running")
 }
 
-pub async fn prepare_cluster<'a>(docker: &'a Cli, airgap_dir: &Path) -> anyhow::Result<Container<'a, K3s>> {
+pub async fn prepare_cluster(airgap_dir: &Path) -> anyhow::Result<Container<K3s>> {
     docker::builder::build_images(airgap_dir)?;
 
     let k3s = RunnableImage::from(K3s::default())
         .with_privileged(true)
-        .with_host_user_ns(true)
+        //.with_host_user_ns(true)
         .with_volume((airgap_dir.to_str().unwrap_or_default(), "/var/lib/rancher/k3s/agent/images/"))
         ;
-    let k3s_container = docker.run(k3s);
-    k3s_container.start();
+    let k3s_container = k3s.start();
 
     let client = get_kube_client(&k3s_container).await.context("Error extracting client")?;
     print_images(&k3s_container).await.context("Error printing images")?;

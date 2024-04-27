@@ -71,4 +71,5 @@ megaphone = { version = "0.10", features = ["client"] }
 [dev-dependencies.testcontainers]
 # version = "0.15.0"
 git = "https://github.com/dghilardi/testcontainers-rs.git"
-branch = "feature/userns"
+branch = "dev"
+features = ["blocking"]
