@@ -31,7 +31,7 @@ dashmap = "5.4.0"
 axum = "0.6.20"
 hyperlocal = "0.8.0"
 metrics = "0.22.0"
-metrics-exporter-prometheus = "0.13.0"
+metrics-exporter-prometheus = "0.14.0"
 lazy_static = "1.4.0"
 regex = "1.10.2"
 
@@ -47,7 +47,7 @@ hex = "0.4.3"
 megaphone = "0.10"
 md5 = "0.7.0"
 ring = "0.17"
-base64 = "0.21.7"
+base64 = "0.22.0"
 reqwest = { version = "0.12.4", features = ["json"] }
 
 [features]
@@ -65,7 +65,7 @@ kube = { version = "0.90.0", features = ["runtime", "derive"] }
 k8s-openapi = { version = "0.21.1", features = ["latest"] }
 lazy_static = "1.4.0"
 tempfile = "3.10.1"
-serial_test = "3.0.0"
+serial_test = "3.1.1"
 megaphone = { version = "0.10", features = ["client"] }
 
 [dev-dependencies.testcontainers]
