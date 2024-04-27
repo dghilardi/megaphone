@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::string::FromUtf8Error;
 use anyhow::Context;
 use crate::docker::image::MEGAPHONE_IMAGE_NAME;
 
