@@ -10,11 +10,12 @@ use k8s_openapi::api::networking::v1::Ingress;
 use kube::{Api, Client, ResourceExt};
 use kube::api::PostParams;
 use kube::runtime::{watcher, WatchStreamExt};
-use testcontainers::{Container, RunnableImage};
-use testcontainers::runners::SyncRunner;
+use testcontainers::{RunnableImage, ContainerAsync};
+use testcontainers::core::Mount;
+use testcontainers::runners::AsyncRunner;
 
 use crate::{docker, kubernetes};
-use crate::kubernetes::client::{get_kube_client, print_images};
+use crate::kubernetes::client::get_kube_client;
 use crate::testcontainers_ext::k3s::K3s;
 
 async fn wait_cluster_ready(client: &Client) -> anyhow::Result<()> {
@@ -59,18 +60,19 @@ async fn wait_cluster_ready(client: &Client) -> anyhow::Result<()> {
     anyhow::bail!("Stream terminated before all pod running")
 }
 
-pub async fn prepare_cluster(airgap_dir: &Path) -> anyhow::Result<Container<K3s>> {
+pub async fn prepare_cluster(airgap_dir: &Path, conf_dir: &Path) -> anyhow::Result<ContainerAsync<K3s>> {
     docker::builder::build_images(airgap_dir)?;
 
     let k3s = RunnableImage::from(K3s::default())
+        .with_env_var(("K3S_KUBECONFIG_MODE", "644"))
         .with_privileged(true)
-        //.with_host_user_ns(true)
-        .with_volume((airgap_dir.to_str().unwrap_or_default(), "/var/lib/rancher/k3s/agent/images/"))
+        .with_userns_mode("host")
+        .with_mount(Mount::bind_mount(airgap_dir.to_str().unwrap_or_default(), "/var/lib/rancher/k3s/agent/images/"))
+        .with_mount(Mount::bind_mount(conf_dir.to_str().unwrap_or_default(), "/etc/rancher/k3s/"))
         ;
-    let k3s_container = k3s.start();
+    let k3s_container = k3s.start().await;
 
-    let client = get_kube_client(&k3s_container).await.context("Error extracting client")?;
-    print_images(&k3s_container).await.context("Error printing images")?;
+    let client = get_kube_client(&k3s_container, conf_dir).await.context("Error extracting client")?;
 
     let configmap_api = Api::<ConfigMap>::default_namespaced(client.clone());
     configmap_api.create(&PostParams::default(), &kubernetes::resources::nginx::nginx_configmap())

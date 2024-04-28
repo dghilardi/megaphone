@@ -8,9 +8,8 @@ use megaphone::dto::agent::OutcomeStatus;
 use megaphone::dto::channel::ChannelCreateReqDto;
 use megaphone::model::constants::protocols::HTTP_STREAM_NDJSON_V1;
 use serde::{Deserialize, Serialize};
-use serde_json::de::Read;
 use serde_json::json;
-use testcontainers::Container;
+use testcontainers::ContainerAsync;
 use tokio::task::JoinHandle;
 use futures::StreamExt;
 use anyhow::Context;
@@ -29,13 +28,13 @@ lazy_static! {
     static ref AIRGAP_DIR: tempfile::TempDir = tempfile::tempdir().expect("Error creating airgap temp dir");
     static ref K3S_CONF_DIR: tempfile::TempDir = tempfile::tempdir().expect("Error creating conf temp dir");
 }
-static CONTAINER: OnceLock<Container<K3s>> = OnceLock::new();
+static CONTAINER: OnceLock<ContainerAsync<K3s>> = OnceLock::new();
 
-async fn get_container() -> anyhow::Result<&'static Container<K3s>> {
+async fn get_container() -> anyhow::Result<&'static ContainerAsync<K3s>> {
     let result = if let Some(container) = CONTAINER.get() {
         container
     } else {
-        let container = prepare_cluster(AIRGAP_DIR.path()).await?;
+        let container = prepare_cluster(AIRGAP_DIR.path(), K3S_CONF_DIR.path()).await?;
         CONTAINER.set(container)
             .map_err(|_| anyhow::anyhow!("Cannot set oncelock"))?;
         let container = CONTAINER.get()
@@ -52,7 +51,7 @@ async fn channel_create() {
         .await
         .expect("Error creating megaphone cluster");
 
-    let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP));
+    let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await);
     let res = client.create(&ChannelCreateReqDto {
         protocols: vec![String::from(HTTP_STREAM_NDJSON_V1)],
     }).await.expect("Error during new channel creation");
@@ -69,7 +68,7 @@ async fn channel_write() {
         .await
         .expect("Error creating megaphone cluster");
 
-    let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP));
+    let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await);
     let create_res = client.create(&ChannelCreateReqDto {
         protocols: vec![String::from(HTTP_STREAM_NDJSON_V1)],
     }).await.expect("Error during new channel creation");
@@ -95,7 +94,7 @@ async fn channel_read_write() {
         .await
         .expect("Error creating megaphone cluster");
 
-    let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP));
+    let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await);
     let create_res = client.create(&ChannelCreateReqDto {
         protocols: vec![String::from(HTTP_STREAM_NDJSON_V1)],
     }).await.expect("Error during new channel creation");
@@ -130,7 +129,7 @@ async fn channel_multi_read_write() {
         .await
         .expect("Error creating megaphone cluster");
 
-    let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP));
+    let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await);
     let create_res = client.create(&ChannelCreateReqDto {
         protocols: vec![String::from(HTTP_STREAM_NDJSON_V1)],
     }).await.expect("Error during new channel creation");
@@ -150,7 +149,7 @@ async fn channel_multi_read_write() {
         Ok(())
     });
 
-    let mut read_client = MegaphoneClient::new(&format!("http://localhost:{}/read", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP)), 100);
+    let mut read_client = MegaphoneClient::new(&format!("http://localhost:{}/read", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await), 100);
     let mut stream = read_client.new_unbounded_stream(|_chan| {
         futures::future::ok::<_, anyhow::Error>(StreamSpec { channel: create_res.consumer_address.to_string(), streams: vec![String::from("test")] })
     }).await.expect("Error initializing read stream");
@@ -185,7 +184,7 @@ async fn channel_multi_read_write_multi_stream() {
         .await
         .expect("Error creating megaphone cluster");
 
-    let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP));
+    let client = MegaphoneRestClient::new("localhost", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await);
     let create_res = client.create(&ChannelCreateReqDto {
         protocols: vec![String::from(HTTP_STREAM_NDJSON_V1)],
     }).await.expect("Error during new channel creation");
@@ -211,7 +210,7 @@ async fn channel_multi_read_write_multi_stream() {
         Ok(())
     });
 
-    let mut read_client = MegaphoneClient::new(&format!("http://localhost:{}/read", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP)), 100);
+    let mut read_client = MegaphoneClient::new(&format!("http://localhost:{}/read", container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await), 100);
     let channel = create_res.consumer_address.to_string();
     let mut even_stream = read_client.new_unbounded_stream(move |_chan| {
         futures::future::ok::<_, anyhow::Error>(StreamSpec { channel: channel.clone(), streams: vec![String::from("even")] })
