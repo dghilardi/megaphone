@@ -1,12 +1,15 @@
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 use axum::response::IntoResponse;
+use axum::Json;
 use futures::StreamExt;
 use tokio::sync::mpsc;
 use tonic::codegen::tokio_stream::wrappers;
 
-use megaphone::dto::agent::{AddVirtualAgentReqDto, BasicOutcomeDto, PipeVirtualAgentReqDto, VirtualAgentItemDto, VirtualAgentModeDto};
+use megaphone::dto::agent::{
+    AddVirtualAgentReqDto, BasicOutcomeDto, PipeVirtualAgentReqDto, VirtualAgentItemDto,
+    VirtualAgentModeDto,
+};
 use megaphone::dto::error::ErrorDto;
 use megaphone::dto::message::EventDto;
 
@@ -20,7 +23,8 @@ pub async fn list_virtual_agents(
     State(svc): State<AgentsManagerService>,
     State(channels_mgr): State<MegaphoneService<EventDto>>,
 ) -> impl IntoResponse {
-    let agents = svc.list_agents()
+    let agents = svc
+        .list_agents()
         .into_iter()
         .map(|(name, props)| VirtualAgentItemDto {
             since: props.change_ts().into(),
@@ -46,11 +50,17 @@ pub async fn pipe_virtual_agent(
     State(channels_mgr): State<MegaphoneService<EventDto>>,
     Json(req): Json<PipeVirtualAgentReqDto>,
 ) -> Result<(StatusCode, Json<BasicOutcomeDto>), (StatusCode, Json<ErrorDto>)> {
-    let mut client = SyncServiceClient::connect(req.target).await
-        .map_err(|err| MegaphoneError::InternalError(format!("Error during connection establishment - {err}")))?;
+    let mut client = SyncServiceClient::connect(req.target)
+        .await
+        .map_err(|err| {
+            MegaphoneError::InternalError(format!("Error during connection establishment - {err}"))
+        })?;
     let (tx, rx) = mpsc::channel(500);
     tokio::spawn(async move {
-        match client.forward_events(wrappers::ReceiverStream::new(rx).map(SyncRequest::from)).await {
+        match client
+            .forward_events(wrappers::ReceiverStream::new(rx).map(SyncRequest::from))
+            .await
+        {
             Ok(ok) => log::info!("Pipe terminated with message - {}", ok.into_inner().message),
             Err(err) => log::error!("Pipe terminated with error - {err}"),
         }

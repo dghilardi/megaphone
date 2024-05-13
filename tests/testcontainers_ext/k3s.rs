@@ -14,11 +14,8 @@ pub struct K3s;
 pub struct K3sArgs;
 
 impl ImageArgs for K3sArgs {
-    fn into_iterator(self) -> Box<dyn Iterator<Item=String>> {
-        Box::new([
-            String::from("server"),
-            String::from("--snapshotter=native"),
-        ].into_iter())
+    fn into_iterator(self) -> Box<dyn Iterator<Item = String>> {
+        Box::new([String::from("server"), String::from("--snapshotter=native")].into_iter())
     }
 }
 
@@ -34,9 +31,9 @@ impl Image for K3s {
     }
 
     fn ready_conditions(&self) -> Vec<WaitFor> {
-        vec![
-            WaitFor::StdErrMessage { message: String::from("Node controller sync successful") }
-        ]
+        vec![WaitFor::StdErrMessage {
+            message: String::from("Node controller sync successful"),
+        }]
     }
 
     fn expose_ports(&self) -> Vec<u16> {

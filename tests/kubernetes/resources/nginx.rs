@@ -1,5 +1,8 @@
 use k8s_openapi::api::apps::v1::{Deployment, DeploymentSpec};
-use k8s_openapi::api::core::v1::{ConfigMap, ConfigMapVolumeSource, Container, ContainerPort, PodSpec, PodTemplateSpec, Service, ServicePort, ServiceSpec, Volume, VolumeMount};
+use k8s_openapi::api::core::v1::{
+    ConfigMap, ConfigMapVolumeSource, Container, ContainerPort, PodSpec, PodTemplateSpec, Service,
+    ServicePort, ServiceSpec, Volume, VolumeMount,
+};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{LabelSelector, ObjectMeta};
 
 pub fn nginx_configmap() -> ConfigMap {
@@ -52,23 +55,30 @@ pub fn nginx_deployment() -> Deployment {
         },
         spec: Some(DeploymentSpec {
             selector: LabelSelector {
-                match_labels: Some([
-                    (String::from("app"), String::from("nginx")),
-                ].into_iter().collect()),
+                match_labels: Some(
+                    [(String::from("app"), String::from("nginx"))]
+                        .into_iter()
+                        .collect(),
+                ),
                 ..Default::default()
             },
             template: PodTemplateSpec {
                 metadata: Some(ObjectMeta {
-                    labels: Some([
-                        (String::from("app"), String::from("nginx")),
-                    ].into_iter().collect()),
+                    labels: Some(
+                        [(String::from("app"), String::from("nginx"))]
+                            .into_iter()
+                            .collect(),
+                    ),
                     ..Default::default()
                 }),
                 spec: Some(PodSpec {
                     containers: vec![Container {
                         name: String::from("nginx"),
                         image: Some(String::from("nginx:1.25.5-alpine")),
-                        ports: Some(vec![ContainerPort { container_port: 80, ..Default::default() }]),
+                        ports: Some(vec![ContainerPort {
+                            container_port: 80,
+                            ..Default::default()
+                        }]),
                         volume_mounts: Some(vec![VolumeMount {
                             name: String::from("nginx-config"),
                             mount_path: String::from("/etc/nginx/conf.d"),
@@ -101,16 +111,16 @@ pub fn nginx_svc() -> Service {
             ..Default::default()
         },
         spec: Some(ServiceSpec {
-            ports: Some(vec![
-                ServicePort {
-                    name: Some(String::from("http")),
-                    port: 80,
-                    ..Default::default()
-                }
-            ]),
-            selector: Some([
-                (String::from("app"), String::from("nginx")),
-            ].into_iter().collect()),
+            ports: Some(vec![ServicePort {
+                name: Some(String::from("http")),
+                port: 80,
+                ..Default::default()
+            }]),
+            selector: Some(
+                [(String::from("app"), String::from("nginx"))]
+                    .into_iter()
+                    .collect(),
+            ),
             ..Default::default()
         }),
         ..Default::default()

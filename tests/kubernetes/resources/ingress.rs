@@ -1,4 +1,6 @@
-use k8s_openapi::api::networking::v1::{Ingress, IngressBackend, IngressServiceBackend, IngressSpec, ServiceBackendPort};
+use k8s_openapi::api::networking::v1::{
+    Ingress, IngressBackend, IngressServiceBackend, IngressSpec, ServiceBackendPort,
+};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
 
 pub fn ingress() -> Ingress {
@@ -14,7 +16,7 @@ pub fn ingress() -> Ingress {
                     port: Some(ServiceBackendPort {
                         number: Some(80),
                         ..Default::default()
-                    })
+                    }),
                 }),
                 ..Default::default()
             }),

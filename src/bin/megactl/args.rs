@@ -19,7 +19,7 @@ pub struct PluCtlArgs {
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum OutFormat {
     Plain,
-    Json
+    Json,
 }
 
 #[derive(Subcommand, Debug)]
@@ -52,9 +52,7 @@ pub struct PipeAgentArgs {
 
 impl From<AddAgentArgs> for AddVirtualAgentReqDto {
     fn from(value: AddAgentArgs) -> Self {
-        Self {
-            name: value.name,
-        }
+        Self { name: value.name }
     }
 }
 

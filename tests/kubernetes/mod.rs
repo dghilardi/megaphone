@@ -1,3 +1,3 @@
-pub mod resources;
-pub mod cluster;
 pub mod client;
+pub mod cluster;
+pub mod resources;
