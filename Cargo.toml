@@ -37,7 +37,7 @@ regex = "1.10.2"
 
 
 clap = { version = "4.1.6", features = ["derive"], optional = true }
-hyper = { version = "0.14.28", optional = true }
+hyper = { version = "1.3.1", optional = true }
 
 tonic = "0.11"
 prost = "0.12"
