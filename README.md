@@ -20,7 +20,7 @@ Each channel:
 To write into a channel, the client must call the `[POST] /write/{producer-address}/{stream-id}` endpoint.
 The server will respond with a `201 Created` status code if the message was successfully written into the channel.
 
-Writing using the `consumerAddress` is deprecated: it is still allowed by default, and can be forbidden by setting the `allow_consumer_write` config key to `false` (in that case the server will respond with `403 Forbidden`).
+Writing using the `consumerAddress` is deprecated: it is still allowed by default, and can be forbidden by setting the `allow_consumer_write` config key to `false` (in that case the server will respond with `403 Forbidden`). The flag applies to the http write endpoints only: the gRPC sync port used for replication between instances is trusted and must not be exposed to clients.
 
 ### Read from a channel
 The only information needed to read from a channel is the `consumerAddress` returned when the channel was created.

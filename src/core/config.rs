@@ -146,3 +146,23 @@ where
 
     deserializer.deserialize_any(StringOrStruct(PhantomData))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allow_consumer_write_defaults_to_true() {
+        let cfg: MegaphoneConfig = serde_json::from_str(r#"{"agent": "a"}"#).unwrap();
+
+        assert!(cfg.allow_consumer_write);
+    }
+
+    #[test]
+    fn allow_consumer_write_can_be_disabled() {
+        let cfg: MegaphoneConfig =
+            serde_json::from_str(r#"{"agent": "a", "allow_consumer_write": false}"#).unwrap();
+
+        assert!(!cfg.allow_consumer_write);
+    }
+}

@@ -91,3 +91,17 @@ impl From<MegaphoneError> for (StatusCode, Json<ErrorDto>) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forbidden_maps_to_403() {
+        let (status, Json(dto)): (StatusCode, Json<ErrorDto>) =
+            MegaphoneError::Forbidden(String::from("test")).into();
+
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(dto.code, "FORBIDDEN");
+    }
+}
