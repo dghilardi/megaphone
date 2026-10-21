@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `allow_consumer_write` config key (default `true`) to allow or forbid writing into a channel using its consumer address
-- `megaphone_consumer_address_writes` metric counting write attempts on existing channels performed with a consumer address
+- `megaphone_consumer_address_writes` metric counting allowed write attempts on existing channels performed with a consumer address
 
 ### Deprecated
 - Writing into a channel using its consumer address, it will be disabled by default in a future release
