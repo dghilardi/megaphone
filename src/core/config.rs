@@ -39,6 +39,9 @@ pub struct MegaphoneConfig {
     pub poll_duration_millis: u64,
     #[serde(default)]
     pub webhooks: HashMap<String, WebHook>,
+    /// Deprecated: allow writing into a channel using its consumer address
+    #[serde(default = "default_allow_consumer_write")]
+    pub allow_consumer_write: bool,
 }
 
 fn default_agent_warmup_secs() -> u64 {
@@ -58,6 +61,10 @@ fn default_mng_socket_path() -> PathBuf {
 
 fn default_poll_duration() -> u64 {
     20_000
+}
+
+fn default_allow_consumer_write() -> bool {
+    true
 }
 
 #[derive(Clone, Deserialize)]

@@ -18,6 +18,8 @@ pub enum MegaphoneError {
     Timeout { secs: usize },
     #[error("Skipped")]
     Skipped,
+    #[error("Forbidden - {0}")]
+    Forbidden(String),
 }
 
 impl MegaphoneError {
@@ -29,6 +31,7 @@ impl MegaphoneError {
             MegaphoneError::BadRequest(_) => "BAD_REQUEST",
             MegaphoneError::Timeout { .. } => "TIMEOUT",
             MegaphoneError::Skipped => "SKIPPED",
+            MegaphoneError::Forbidden(_) => "FORBIDDEN",
         }
     }
 }
@@ -76,6 +79,13 @@ impl From<MegaphoneError> for (StatusCode, Json<ErrorDto>) {
                 Json(ErrorDto {
                     code: String::from(err.code()),
                     message: String::from("Skipped"),
+                }),
+            ),
+            MegaphoneError::Forbidden(msg) => (
+                StatusCode::FORBIDDEN,
+                Json(ErrorDto {
+                    code: String::from(err.code()),
+                    message: format!("Forbidden - {msg}"),
                 }),
             ),
         }

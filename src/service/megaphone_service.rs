@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Add;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, Once};
 use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
@@ -31,6 +31,9 @@ pub const MESSAGES_RECEIVED_METRIC_NAME: &str = "megaphone_messages_received";
 pub const MESSAGES_SENT_METRIC_NAME: &str = "megaphone_messages_read";
 pub const MESSAGES_UNROUTABLE_METRIC_NAME: &str = "megaphone_messages_unroutable";
 pub const MESSAGES_LOST_METRIC_NAME: &str = "megaphone_messages_lost";
+pub const CONSUMER_ADDRESS_WRITES_METRIC_NAME: &str = "megaphone_consumer_address_writes";
+
+static CONSUMER_WRITE_DEPRECATION: Once = Once::new();
 
 pub struct BufferedChannel<Event> {
     full_id: String,
@@ -98,6 +101,7 @@ pub struct MegaphoneService<MessageData> {
     webhooks: HashMap<String, WebHook>,
     agents_manager: AgentsManagerService,
     buffer: Arc<DashMap<ChannelShortId, BufferedChannel<MessageData>>>,
+    allow_consumer_write: bool,
 }
 
 impl<Evt> Clone for MegaphoneService<Evt> {
@@ -106,16 +110,22 @@ impl<Evt> Clone for MegaphoneService<Evt> {
             webhooks: self.webhooks.clone(),
             agents_manager: self.agents_manager.clone(),
             buffer: self.buffer.clone(),
+            allow_consumer_write: self.allow_consumer_write,
         }
     }
 }
 
 impl<Event> MegaphoneService<Event> {
-    pub fn new(webhooks: HashMap<String, WebHook>, agents_manager: AgentsManagerService) -> Self {
+    pub fn new(
+        webhooks: HashMap<String, WebHook>,
+        agents_manager: AgentsManagerService,
+        allow_consumer_write: bool,
+    ) -> Self {
         Self {
             webhooks,
             agents_manager,
             buffer: Default::default(),
+            allow_consumer_write,
         }
     }
 
@@ -343,16 +353,21 @@ impl<Event> MegaphoneService<Event> {
     }
 
     fn parse_full_id(&self, full_id: &str) -> Result<ChannelShortId, MegaphoneError> {
-        let mut fragments = full_id.split('.');
-        let channel_id = fragments
-            .next()
-            .and_then(|agent_id| fragments.next().map(|channel_id| (agent_id, channel_id)))
-            .filter(|(_, channel_id)| channel_id.len() != 50)
+        let channel_id = Self::split_producer_address(full_id)
             .map(|(agent_id, channel_id)| {
                 self.agents_manager.decrypt_channel_id(agent_id, channel_id)
             })
             .unwrap_or_else(|| ChannelShortId::from_full_id(full_id))?;
         Ok(channel_id)
+    }
+
+    /// Returns agent id and encrypted channel id if `full_id` is a producer address
+    fn split_producer_address(full_id: &str) -> Option<(&str, &str)> {
+        let mut fragments = full_id.split('.');
+        fragments
+            .next()
+            .and_then(|agent_id| fragments.next().map(|channel_id| (agent_id, channel_id)))
+            .filter(|(_, channel_id)| channel_id.len() != 50)
     }
 }
 
@@ -421,6 +436,13 @@ impl MegaphoneService<EventDto> {
         full_id: &str,
         message: EventDto,
     ) -> Result<(), MegaphoneError> {
+        let is_consumer_address = Self::split_producer_address(full_id).is_none();
+        if is_consumer_address && !self.allow_consumer_write {
+            return Err(MegaphoneError::Forbidden(String::from(
+                "writing with a consumer address is disabled, use the producer address",
+            )));
+        }
+
         let channel_id = self.parse_full_id(full_id)?;
 
         let Some(channel) = self.buffer.get(&channel_id) else {
@@ -428,6 +450,13 @@ impl MegaphoneService<EventDto> {
             return Err(MegaphoneError::NotFound);
         };
         counter!(MESSAGES_RECEIVED_METRIC_NAME).increment(1);
+
+        if is_consumer_address {
+            counter!(CONSUMER_ADDRESS_WRITES_METRIC_NAME).increment(1);
+            CONSUMER_WRITE_DEPRECATION.call_once(|| {
+                log::warn!("Writing with a consumer address is deprecated and will be disabled by default in a future release, use the producer address");
+            });
+        }
 
         let pipes = channel
             .full_id
@@ -512,5 +541,77 @@ impl<Event: WithTimestamp> BufferedChannel<Event> {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+    use crate::core::config::AgentConfig;
+
+    fn build_service(allow_consumer_write: bool) -> MegaphoneService<EventDto> {
+        let agents_manager =
+            AgentsManagerService::new(AgentConfig::from_str("a").unwrap(), 0).unwrap();
+        MegaphoneService::new(HashMap::new(), agents_manager, allow_consumer_write)
+    }
+
+    fn event() -> EventDto {
+        EventDto::new(String::from("stream"), json!({ "k": "v" }))
+    }
+
+    #[tokio::test]
+    async fn producer_address_write_is_always_allowed() {
+        for allow_consumer_write in [true, false] {
+            let svc = build_service(allow_consumer_write);
+            let (_, _, producer_address, _) = svc.create_channel(&[]).await.unwrap();
+
+            svc.write_into_channel(&producer_address, event())
+                .await
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn consumer_address_write_is_allowed_when_enabled() {
+        let svc = build_service(true);
+        let (_, consumer_address, _, _) = svc.create_channel(&[]).await.unwrap();
+
+        svc.write_into_channel(&consumer_address, event())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn consumer_address_write_is_rejected_when_disabled() {
+        let svc = build_service(false);
+        let (_, consumer_address, _, _) = svc.create_channel(&[]).await.unwrap();
+
+        let result = svc.write_into_channel(&consumer_address, event()).await;
+
+        assert!(matches!(result, Err(MegaphoneError::Forbidden(_))));
+    }
+
+    #[tokio::test]
+    async fn consumer_address_batch_write_is_rejected_when_disabled() {
+        let svc = build_service(false);
+        let (_, consumer_address, producer_address, _) = svc.create_channel(&[]).await.unwrap();
+
+        let failures = svc
+            .write_batch_into_channels(&[&consumer_address, &producer_address], vec![event()])
+            .await;
+
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].channel, consumer_address);
+        assert_eq!(failures[0].reason, "FORBIDDEN");
+    }
+
+    #[tokio::test]
+    async fn consumer_address_still_identifies_channel_when_disabled() {
+        let svc = build_service(false);
+        let (_, consumer_address, _, _) = svc.create_channel(&[]).await.unwrap();
+
+        assert!(svc.channel_exists(&consumer_address));
     }
 }

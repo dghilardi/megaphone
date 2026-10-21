@@ -23,6 +23,7 @@ impl<Evt> MegaphoneState<Evt> {
             megaphone_svc: MegaphoneService::new(
                 app_config.webhooks.clone(),
                 agents_manager.clone(),
+                app_config.allow_consumer_write,
             ),
             agents_manager_svc: agents_manager,
             megaphone_cfg: Arc::new(RwLock::new(app_config)),

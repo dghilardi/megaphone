@@ -20,6 +20,8 @@ Each channel:
 To write into a channel, the client must call the `[POST] /write/{producer-address}/{stream-id}` endpoint.
 The server will respond with a `201 Created` status code if the message was successfully written into the channel.
 
+Writing using the `consumerAddress` is deprecated: it is still allowed by default, and can be forbidden by setting the `allow_consumer_write` config key to `false` (in that case the server will respond with `403 Forbidden`).
+
 ### Read from a channel
 The only information needed to read from a channel is the `consumerAddress` returned when the channel was created.
 At the moment the only supported protocol is http streaming, so to read from a channel the client must call the `[GET] /read/{consumer-address}` endpoint.
