@@ -350,6 +350,13 @@ impl AgentsManagerService {
             MegaphoneError::BadRequest(format!("Cannot deserialize {input} - {err}"))
         })?;
 
+        // nonce (12 bytes) followed by at least the authentication tag (16 bytes)
+        if data.len() < 12 + AES_256_GCM.tag_len() {
+            return Err(MegaphoneError::BadRequest(format!(
+                "Malformed channel id {input}"
+            )));
+        }
+
         log::debug!("nonce {:X?} data {:X?}", &data[..12], &data[12..]);
 
         let nonce = data[..12].try_into().map_err(|v| {

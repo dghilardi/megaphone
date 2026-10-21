@@ -5,6 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Fixed
+- Panic on malformed producer addresses shorter than nonce and tag, now rejected with `400 Bad Request`
+- Writes performed with a producer address were not delivered to replicas while the agent was piped
+
 ### Added
 - `allow_consumer_write` config key (default `true`) to allow or forbid writing into a channel using its consumer address
 - `megaphone_consumer_address_writes` metric counting write attempts on existing channels performed with a consumer address

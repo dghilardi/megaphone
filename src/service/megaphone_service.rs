@@ -467,7 +467,7 @@ impl MegaphoneService<EventDto> {
 
         for pipe in &pipes {
             let out = pipe.try_send(SyncEvent::EventReceived {
-                channel: full_id.to_string(),
+                channel: channel.full_id.clone(),
                 event: message.clone(),
             });
             if let Err(err) = out {
@@ -605,6 +605,50 @@ mod tests {
         assert_eq!(failures.len(), 1);
         assert_eq!(failures[0].channel, consumer_address);
         assert_eq!(failures[0].reason, "FORBIDDEN");
+    }
+
+    #[tokio::test]
+    async fn producer_address_write_is_forwarded_to_replicas_with_consumer_address() {
+        let master = build_service(false);
+        let (agent_id, consumer_address, producer_address, _) =
+            master.create_channel(&[]).await.unwrap();
+        let (pipe_tx, mut pipe_rx) = tokio::sync::mpsc::channel(10);
+        master
+            .agents_manager
+            .register_pipe(&agent_id, pipe_tx)
+            .unwrap();
+        let replica = build_service(false);
+        replica
+            .create_channel_with_id(&consumer_address)
+            .await
+            .unwrap();
+
+        master
+            .write_into_channel(&producer_address, event())
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            pipe_rx.recv().await,
+            Some(SyncEvent::PipeAgentStart { .. })
+        ));
+        let Some(SyncEvent::EventReceived { channel, event }) = pipe_rx.recv().await else {
+            panic!("expected EventReceived");
+        };
+        assert_eq!(channel, consumer_address);
+        replica.inject_into_channel(&channel, event).unwrap();
+    }
+
+    #[tokio::test]
+    async fn malformed_producer_address_is_rejected() {
+        let svc = build_service(true);
+        let (agent_id, _, _, _) = svc.create_channel(&[]).await.unwrap();
+
+        for address in [format!("{agent_id}."), format!("{agent_id}.YQ")] {
+            let result = svc.write_into_channel(&address, event()).await;
+
+            assert!(matches!(result, Err(MegaphoneError::BadRequest(_))));
+        }
     }
 
     #[tokio::test]
