@@ -1,4 +1,4 @@
-# Keep in sync with the Rust image in docker/Dockerfile
+# Keep in sync with the Rust image in docker/Dockerfile (checked by CI)
 [toolchain]
 channel = "1.92.0"
 profile = "minimal"

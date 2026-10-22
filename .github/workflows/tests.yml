@@ -39,3 +39,7 @@ jobs:
         run: rustup toolchain install
       - name: Rustfmt check
         run: cargo fmt --all -- --check
+      - name: Check Dockerfile uses the pinned toolchain
+        run: |
+          toolchain=$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)
+          grep -q "^FROM rust:${toolchain}-" docker/Dockerfile || { echo "docker/Dockerfile must use rust:${toolchain}, as rust-toolchain.toml"; exit 1; }

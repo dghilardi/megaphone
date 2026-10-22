@@ -6,10 +6,8 @@ on:
 env:
   PROTOC_VERSION: 3.23.4
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
     - name: Checkout
       uses: actions/checkout@v7
@@ -24,6 +22,22 @@ jobs:
 
     - name: Run tests
       run: cargo test --verbose
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+
+    - name: Install protoc
+      uses: taiki-e/install-action@v2
+      with:
+        tool: protoc@${{ env.PROTOC_VERSION }}
+
+    - name: Install toolchain
+      run: rustup toolchain install
 
     - name: Install dependencies
       run: |
@@ -58,7 +72,7 @@ jobs:
         cargo publish
   push_to_registry:
     name: Push Megaphone image to Docker Hub
-    needs: build
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repo

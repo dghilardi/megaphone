@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Changed
-- Rust toolchain pinned to 1.92 via `rust-toolchain.toml`; CI updated to maintained actions and Docker image published only after tests pass
+- Rust toolchain pinned to 1.92.0 via `rust-toolchain.toml` (Docker image aligned and checked by CI); CI updated to maintained actions, release artifacts published only after tests pass, Dependabot also updates GitHub Actions
 
 ## [0.10.7] 2026-10-21
 ### Fixed
