@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Changed
+- Updated `thiserror` 2, `dashmap` 6, `config` 0.15, `base64` 0.23, `md5` 0.8, `rand` 0.10, `metrics` 0.24, `metrics-exporter-prometheus` 0.18
+- Rust toolchain bumped to 1.99.1
 - Rust toolchain pinned to 1.92.0 via `rust-toolchain.toml` (Docker image aligned and checked by CI); CI updated to maintained actions, release artifacts published only after tests pass, Dependabot also updates GitHub Actions
 
 ## [0.10.7] 2026-10-21

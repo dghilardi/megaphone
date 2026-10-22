@@ -165,4 +165,18 @@ mod tests {
 
         assert!(!cfg.allow_consumer_write);
     }
+
+    #[test]
+    fn config_is_loaded_from_environment() {
+        std::env::set_var("MEGAPHONECFGTEST_AGENT", "a");
+        std::env::set_var("MEGAPHONECFGTEST_AGENT_WARMUP_SECS", "5");
+        std::env::set_var("megaphonecfgtest_allow_consumer_write", "false");
+
+        let cfg: MegaphoneConfig =
+            compose_config("megaphonecfgtest-missing-file", "megaphonecfgtest").unwrap();
+
+        assert!(cfg.agent.virtual_agents.contains_key("a"));
+        assert_eq!(cfg.agent_warmup_secs, 5);
+        assert!(!cfg.allow_consumer_write);
+    }
 }

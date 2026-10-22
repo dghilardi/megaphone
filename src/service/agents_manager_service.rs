@@ -155,7 +155,7 @@ impl AgentsManagerService {
     pub fn random_master_id(&self) -> Result<String, MegaphoneError> {
         self.active_masters()
             .map(|entry| entry.key().to_string())
-            .choose(&mut rand::thread_rng())
+            .choose(&mut rand::rng())
             .ok_or(MegaphoneError::InternalError(String::from(
                 "No virtual agent with master status was found",
             )))

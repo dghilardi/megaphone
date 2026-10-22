@@ -7,8 +7,8 @@ use std::time::{Duration, SystemTime};
 use dashmap::DashMap;
 use futures::FutureExt;
 use metrics::{counter, histogram};
-use rand::distributions::Alphanumeric;
-use rand::Rng;
+use rand::distr::Alphanumeric;
+use rand::RngExt;
 use tokio::sync::mpsc::error::{SendTimeoutError, TrySendError};
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::Mutex;
@@ -144,7 +144,7 @@ impl<Event> MegaphoneService<Event> {
         let vagent_id = self.agents_manager.random_master_id()?.to_string();
 
         let (channel_short_id, channel_full_id) = loop {
-            let channel_id: String = rand::thread_rng()
+            let channel_id: String = rand::rng()
                 .sample_iter(&Alphanumeric)
                 .take(50)
                 .map(char::from)
