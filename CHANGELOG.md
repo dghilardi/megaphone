@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- Docker build warning about inconsistent `FROM ... AS` casing
+- Integration tests leaving the k3s cluster container and temp dirs behind
 - `megactl list-channels` failing to parse the channel list and ignoring `--skip`/`--limit`
 - HTTPS webhooks failing certificate validation in the Docker image, which lacked `ca-certificates`
 
