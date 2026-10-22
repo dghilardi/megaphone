@@ -1,7 +1,6 @@
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use futures::{StreamExt, TryFutureExt};
-use lazy_static::lazy_static;
 use megaphone::client::model::StreamSpec;
 use megaphone::client::MegaphoneClient;
 use megaphone::dto::agent::OutcomeStatus;
@@ -9,8 +8,11 @@ use megaphone::dto::channel::ChannelCreateReqDto;
 use megaphone::model::constants::protocols::HTTP_STREAM_NDJSON_V1;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::sync::{Once, OnceLock};
+use std::io::Write;
+use std::path::Path;
+use std::sync::OnceLock;
 use std::time::Duration;
+use tempfile::TempDir;
 use testcontainers::ContainerAsync;
 use tokio::task::JoinHandle;
 
@@ -24,44 +26,78 @@ mod docker;
 mod kubernetes;
 mod testcontainers_ext;
 
-lazy_static! {
-    static ref AIRGAP_DIR: tempfile::TempDir =
-        tempfile::tempdir().expect("Error creating airgap temp dir");
-    static ref K3S_CONF_DIR: tempfile::TempDir =
-        tempfile::tempdir().expect("Error creating conf temp dir");
-}
+static AIRGAP_DIR: OnceLock<TempDir> = OnceLock::new();
+static K3S_CONF_DIR: OnceLock<TempDir> = OnceLock::new();
 static CONTAINER: OnceLock<ContainerAsync<K3s>> = OnceLock::new();
-static CLEANUP_REGISTRATION: Once = Once::new();
+static CLEANUP_REGISTERED: OnceLock<bool> = OnceLock::new();
 
 extern "C" {
     fn atexit(callback: extern "C" fn()) -> std::os::raw::c_int;
 }
 
-/// Statics are never dropped, remove the shared cluster and temp dirs when the test process exits
+/// Statics are never dropped, remove the shared cluster and temp dirs when the test process exits.
+/// Must not panic: a panic escaping an `extern "C"` function aborts the process.
 extern "C" fn cleanup_cluster() {
+    if std::env::var("TESTCONTAINERS_COMMAND").is_ok_and(|cmd| cmd == "keep") {
+        return;
+    }
+    let mut stderr = std::io::stderr();
     if let Some(container) = CONTAINER.get() {
         let out = std::process::Command::new("docker")
             .args(["rm", "--force", "--volumes", container.id()])
             .output();
-        if let Err(err) = out {
-            eprintln!("Error removing k3s container - {err}");
+        match out {
+            Ok(out) if out.status.success() => {}
+            Ok(out) => {
+                let _ = writeln!(
+                    stderr,
+                    "Error removing k3s container {} - {} {}",
+                    container.id(),
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                // the container still mounts the temp dirs, keep them
+                return;
+            }
+            Err(err) => {
+                let _ = writeln!(
+                    stderr,
+                    "Error removing k3s container {} - {err}",
+                    container.id()
+                );
+                return;
+            }
         }
     }
-    for dir in [AIRGAP_DIR.path(), K3S_CONF_DIR.path()] {
-        if let Err(err) = std::fs::remove_dir_all(dir) {
-            eprintln!("Error removing temp dir {dir:?} - {err}");
+    for dir in [&AIRGAP_DIR, &K3S_CONF_DIR]
+        .into_iter()
+        .filter_map(OnceLock::get)
+    {
+        if let Err(err) = std::fs::remove_dir_all(dir.path()) {
+            let _ = writeln!(stderr, "Error removing temp dir {:?} - {err}", dir.path());
         }
     }
 }
 
+fn temp_dir(cell: &'static OnceLock<TempDir>) -> anyhow::Result<&'static Path> {
+    if cell.get().is_none() {
+        let _ = cell.set(tempfile::tempdir().context("Error creating temp dir")?);
+    }
+    cell.get()
+        .map(TempDir::path)
+        .ok_or_else(|| anyhow::anyhow!("Oncelock not valorized"))
+}
+
 async fn get_container() -> anyhow::Result<&'static ContainerAsync<K3s>> {
-    CLEANUP_REGISTRATION.call_once(|| unsafe {
-        atexit(cleanup_cluster);
-    });
+    let cleanup_registered =
+        *CLEANUP_REGISTERED.get_or_init(|| unsafe { atexit(cleanup_cluster) } == 0);
+    if !cleanup_registered {
+        anyhow::bail!("Cannot register cluster cleanup");
+    }
     let result = if let Some(container) = CONTAINER.get() {
         container
     } else {
-        let container = prepare_cluster(AIRGAP_DIR.path(), K3S_CONF_DIR.path()).await?;
+        let container = prepare_cluster(temp_dir(&AIRGAP_DIR)?, temp_dir(&K3S_CONF_DIR)?).await?;
         CONTAINER
             .set(container)
             .map_err(|_| anyhow::anyhow!("Cannot set oncelock"))?;
