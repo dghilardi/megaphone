@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Changed
+- Rust toolchain pinned to 1.92 via `rust-toolchain.toml`; CI updated to maintained actions and Docker image published only after tests pass
 
 ## [0.10.7] 2026-10-21
 ### Fixed

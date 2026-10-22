@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v7
 
     - name: Install protoc
       uses: taiki-e/install-action@v2
@@ -23,11 +23,8 @@ jobs:
         tool: protoc@${{ env.PROTOC_VERSION }}
 
 
-    - name: Install minimal stable
-      uses: actions-rs/toolchain@v1
-      with:
-        profile: minimal
-        toolchain: stable
+    - name: Install toolchain
+      run: rustup toolchain install
 
     - name: Run tests
       run: cargo test --verbose
@@ -37,16 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          components: rustfmt
-          override: true
+        uses: actions/checkout@v7
+      - name: Install toolchain
+        run: rustup toolchain install
       - name: Rustfmt check
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo fmt --all -- --check
