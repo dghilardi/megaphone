@@ -1,4 +1,4 @@
-FROM rust:1.99.1-bookworm as build
+FROM rust:1.99.1-bookworm AS build
 
 WORKDIR /app
 
@@ -17,7 +17,7 @@ COPY src /app/src
 
 RUN cargo build --all-features --release
 
-FROM debian:bookworm-slim as dist
+FROM debian:bookworm-slim AS dist
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
