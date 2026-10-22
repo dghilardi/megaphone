@@ -1,5 +1,5 @@
 use clap::Parser;
-use hyper::Client;
+use hyper_util::client::legacy::Client;
 use hyperlocal::{UnixClientExt, Uri};
 
 use megaphone::dto::agent::{

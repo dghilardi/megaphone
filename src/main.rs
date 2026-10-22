@@ -1,5 +1,5 @@
 use std::fs;
-use std::future::ready;
+use std::future::{ready, IntoFuture};
 use std::path::Path;
 use std::time::Duration;
 
@@ -7,13 +7,14 @@ use anyhow::Context;
 use axum::extract::FromRef;
 use axum::{
     routing::{get, post},
-    Router, Server,
+    Router,
 };
 
-use axum::routing::{delete, IntoMakeService};
+use axum::routing::delete;
+use axum::serve::Serve;
 use futures::TryFutureExt;
-use hyperlocal::{SocketIncoming, UnixServerExt};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use tokio::net::{TcpListener, UnixListener};
 use tokio::try_join;
 
 use megaphone::dto::message::EventDto;
@@ -73,11 +74,11 @@ async fn main() {
     let app = Router::new()
         .route("/create", post(http::channel::create_handler))
         .route(
-            "/write/:channel_id/:stream_id",
+            "/write/{channel_id}/{stream_id}",
             post(http::channel::write_handler),
         )
         .route("/write-batch", post(http::channel::write_batch_handler))
-        .route("/read/:id", get(http::channel::read_handler))
+        .route("/read/{id}", get(http::channel::read_handler))
         .route(
             "/channelsExists",
             post(http::channel::channel_exists_handler),
@@ -92,12 +93,17 @@ async fn main() {
         )))
         .serve(grpc_address);
 
+    let listener = TcpListener::bind(&address)
+        .await
+        .expect("Error binding http address");
+
     try_join!(
-        axum::Server::bind(&address)
-            .serve(app.into_make_service())
+        axum::serve(listener, app)
+            .into_future()
             .map_err(anyhow::Error::from),
         build_server(mng_socket_path, service)
             .expect("Error building mgmt server")
+            .into_future()
             .map_err(anyhow::Error::from),
         grpc_server.map_err(anyhow::Error::from),
     )
@@ -107,7 +113,7 @@ async fn main() {
 pub fn build_server(
     path: impl AsRef<Path>,
     service: MegaphoneState<EventDto>,
-) -> anyhow::Result<Server<SocketIncoming, IntoMakeService<Router>>> {
+) -> anyhow::Result<Serve<UnixListener, Router, Router>> {
     if path.as_ref().exists() {
         fs::remove_file(path.as_ref()).context("Could not remove old socket!")?;
     }
@@ -118,12 +124,12 @@ pub fn build_server(
         .route("/vagent/pipe", post(http::vagent::pipe_virtual_agent))
         .route("/channel/list", get(http::channel::channels_list_handler))
         .route(
-            "/channel/:channel_id",
+            "/channel/{channel_id}",
             delete(http::channel::channel_delete_handler),
         )
         .with_state(service);
 
-    let srv = axum::Server::bind_unix(path)?.serve(app.into_make_service());
+    let srv = axum::serve(UnixListener::bind(path)?, app);
 
     Ok(srv)
 }

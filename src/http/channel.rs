@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::body::StreamBody;
+use axum::body::Body;
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
@@ -23,9 +24,9 @@ use crate::service::megaphone_service::MegaphoneService;
 
 pub async fn create_handler(
     State(svc): State<MegaphoneService<EventDto>>,
-    body_opt: Option<Json<ChannelCreateReqDto>>,
+    body_res: Result<Json<ChannelCreateReqDto>, JsonRejection>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorDto>)> {
-    let Json(req) = body_opt.unwrap_or_default();
+    let Json(req) = body_res.unwrap_or_default();
     let (agent_name, channel_id, producer_address, protocols) =
         svc.create_channel(&req.protocols).await?;
     Ok(Json(ChannelCreateResDto {
@@ -57,7 +58,7 @@ pub async fn read_handler(
                 })
                 .map_err(BoxError::from)
         });
-    let body = StreamBody::new(stream);
+    let body = Body::from_stream(stream);
 
     let mut headers = HeaderMap::new();
     headers.insert(

@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Changed
+- Updated `axum` to 0.8 and `hyper` to 1 (management socket served by axum, `hyperlocal` only used by `megactl`); `megactl` errors now include their cause
 - Updated `tonic`/`prost` to 0.14 (code generation via `tonic-prost-build`)
 - Updated `thiserror` 2, `dashmap` 6, `config` 0.15, `base64` 0.23, `md5` 0.8, `rand` 0.10, `metrics` 0.24, `metrics-exporter-prometheus` 0.18 (without unused HTTP listener and push gateway)
 - Rust toolchain bumped to 1.99.1

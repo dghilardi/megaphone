@@ -28,8 +28,7 @@ futures = { version = "0.3.25" }
 
 dashmap = "6.1"
 
-axum = "0.6.20"
-hyperlocal = "0.8.0"
+axum = "0.8"
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 lazy_static = "1.4.0"
@@ -37,7 +36,10 @@ regex = "1.10.2"
 
 
 clap = { version = "4.1.6", features = ["derive"], optional = true }
-hyper = { version = "0.14.28", optional = true }
+hyper = { version = "1", optional = true }
+hyper-util = { version = "0.1", features = ["client-legacy"], optional = true }
+http-body-util = { version = "0.1", optional = true }
+hyperlocal = { version = "0.9", default-features = false, features = ["client"], optional = true }
 
 tonic = "0.14"
 tonic-prost = "0.14"
@@ -52,7 +54,7 @@ base64 = "0.23"
 reqwest = { version = "0.12.4", features = ["json"] }
 
 [features]
-bin-cli = [ "clap", "hyper"]
+bin-cli = [ "clap", "hyper", "hyper-util", "http-body-util", "hyperlocal"]
 
 [[bin]]
 name = "megactl"

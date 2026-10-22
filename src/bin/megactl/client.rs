@@ -1,34 +1,30 @@
-use std::error::Error as StdError;
-
 use anyhow::{bail, Context};
-use hyper::body::{Bytes, HttpBody};
-use hyper::client::connect::Connect;
-use hyper::{Body, Method, Request, Response, Uri};
+use http_body_util::{BodyExt, Full};
+use hyper::body::{Bytes, Incoming};
+use hyper::{Method, Request, Response, Uri};
+use hyper_util::client::legacy::connect::Connect;
+use hyper_util::client::legacy::Client;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use megaphone::dto::error::ErrorDto;
 
-pub struct SimpleRest<C, B = Body> {
-    client: hyper::Client<C, B>,
+pub struct SimpleRest<C> {
+    client: Client<C, Full<Bytes>>,
 }
 
-impl<C, B> From<hyper::Client<C, B>> for SimpleRest<C, B> {
-    fn from(value: hyper::Client<C, B>) -> Self {
+impl<C> From<Client<C, Full<Bytes>>> for SimpleRest<C> {
+    fn from(value: Client<C, Full<Bytes>>) -> Self {
         Self { client: value }
     }
 }
 
-impl<C, B> SimpleRest<C, B>
+impl<C> SimpleRest<C>
 where
     C: Connect + Clone + Send + Sync + 'static,
-    B: HttpBody + Send + 'static,
-    B::Data: Send,
-    B::Error: Into<Box<dyn StdError + Send + Sync>>,
 {
     pub async fn get<U, Res>(&self, url: U) -> anyhow::Result<Res>
     where
-        B: Default,
         U: Into<Uri>,
         Res: DeserializeOwned,
     {
@@ -39,21 +35,20 @@ where
                 Self::extract_error_message(res).await
             )
         }
-        let res_body: Bytes = hyper::body::to_bytes(res.into_body()).await?;
+        let res_body: Bytes = res.into_body().collect().await?.to_bytes();
         let parsed_res = serde_json::from_slice(&res_body[..])?;
         Ok(parsed_res)
     }
 
     pub async fn delete<U, Res>(&self, url: U) -> anyhow::Result<Res>
     where
-        B: Default + From<Vec<u8>>,
         U: Into<Uri>,
         Res: DeserializeOwned,
     {
         let http_req = Request::builder()
             .method(Method::DELETE)
             .uri(url.into())
-            .body(B::from(Vec::<u8>::new()))
+            .body(Full::default())
             .context("request builder")?;
 
         let res = self.client.request(http_req).await?;
@@ -63,14 +58,13 @@ where
                 Self::extract_error_message(res).await
             )
         }
-        let res_body: Bytes = hyper::body::to_bytes(res.into_body()).await?;
+        let res_body: Bytes = res.into_body().collect().await?.to_bytes();
         let parsed_res = serde_json::from_slice(&res_body[..])?;
         Ok(parsed_res)
     }
 
     pub async fn post<U, Req, Res>(&self, url: U, req: Req) -> anyhow::Result<Res>
     where
-        B: Default + From<Vec<u8>>,
         U: Into<Uri>,
         Req: Serialize,
         Res: DeserializeOwned,
@@ -79,7 +73,7 @@ where
             .method(Method::POST)
             .uri(url.into())
             .header("Content-Type", "application/json")
-            .body(B::from(serde_json::to_vec(&req)?))
+            .body(Full::from(serde_json::to_vec(&req)?))
             .context("request builder")?;
 
         let res = self.client.request(http_req).await?;
@@ -89,15 +83,17 @@ where
                 Self::extract_error_message(res).await
             )
         }
-        let res_body: Bytes = hyper::body::to_bytes(res.into_body()).await?;
+        let res_body: Bytes = res.into_body().collect().await?.to_bytes();
         let parsed_res = serde_json::from_slice(&res_body[..])?;
         Ok(parsed_res)
     }
 
-    async fn extract_error_message(res: Response<Body>) -> String {
-        match hyper::body::to_bytes(res.into_body())
+    async fn extract_error_message(res: Response<Incoming>) -> String {
+        match res
+            .into_body()
+            .collect()
             .await
-            .map(|bytes| serde_json::from_slice::<ErrorDto>(bytes.as_ref()))
+            .map(|body| serde_json::from_slice::<ErrorDto>(body.to_bytes().as_ref()))
         {
             Ok(Ok(err_dto)) => format!("Megaphone error - [{}] {}", err_dto.code, err_dto.message),
             Ok(Err(err)) => format!("Deserialization error - {err}"),

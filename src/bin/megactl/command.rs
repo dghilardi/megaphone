@@ -15,10 +15,10 @@ where
 {
     match (command().await, out_format) {
         (Ok(result), fmt) => result.print(fmt),
-        (Err(error), OutFormat::Plain) => eprintln!("Error during command execution - {error}"),
+        (Err(error), OutFormat::Plain) => eprintln!("Error during command execution - {error:#}"),
         (Err(error), OutFormat::Json) => eprintln!(
             "{}",
-            serde_json::to_string(&json!({ "out": "error", "message": error.to_string() }))
+            serde_json::to_string(&json!({ "out": "error", "message": format!("{error:#}") }))
                 .unwrap()
         ),
     }
