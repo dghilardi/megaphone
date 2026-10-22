@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- `megactl list-channels` failing to parse the channel list and ignoring `--skip`/`--limit`
 - HTTPS webhooks failing certificate validation in the Docker image, which lacked `ca-certificates`
 
 ## [0.11.0] 2026-10-22

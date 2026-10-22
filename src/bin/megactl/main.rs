@@ -5,6 +5,7 @@ use hyperlocal::{UnixClientExt, Uri};
 use megaphone::dto::agent::{
     AddVirtualAgentReqDto, BasicOutcomeDto, PipeVirtualAgentReqDto, VirtualAgentItemDto,
 };
+use megaphone::dto::channel::ChannelInfoDto;
 
 use crate::args::{Commands, PluCtlArgs};
 use crate::client::SimpleRest;
@@ -44,9 +45,22 @@ async fn main() -> anyhow::Result<()> {
             })
             .await;
         }
-        Commands::ListChannels(_list_channels_args) => {
+        Commands::ListChannels(list_channels_args) => {
+            let query = [
+                list_channels_args.skip.map(|skip| format!("skip={skip}")),
+                list_channels_args
+                    .limit
+                    .map(|limit| format!("limit={limit}")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join("&");
             execute_command(args.out_format, || {
-                client.get::<_, BasicOutcomeDto>(Uri::new(args.path, "/channel/list"))
+                client.get::<_, Vec<ChannelInfoDto>>(Uri::new(
+                    args.path,
+                    &format!("/channel/list?{query}"),
+                ))
             })
             .await;
         }

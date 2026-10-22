@@ -4,6 +4,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use megaphone::dto::agent::{BasicOutcomeDto, VirtualAgentItemDto};
+use megaphone::dto::channel::ChannelInfoDto;
 
 use crate::args::OutFormat;
 
@@ -69,6 +70,15 @@ impl PrintFormat<PlainFormat> for Vec<VirtualAgentItemDto> {
                 "{0: <16} | {1: <10?} | {2: <33} | {3: <10}",
                 item.name, item.mode, item.since, item.channels_count
             );
+        }
+    }
+}
+
+impl PrintFormat<PlainFormat> for Vec<ChannelInfoDto> {
+    fn print(&self) {
+        println!("{0: <16} | {1}", "AGENT", "ADDRESS");
+        for item in self {
+            println!("{0: <16} | {1}", item.agent_id, item.address);
         }
     }
 }
