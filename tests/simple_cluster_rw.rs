@@ -57,7 +57,10 @@ async fn channel_create() {
 
     let client = MegaphoneRestClient::new(
         "localhost",
-        container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await,
+        container
+            .get_host_port_ipv4(k3s::TRAEFIK_HTTP)
+            .await
+            .expect("Error retrieving traefik port"),
     );
     let res = client
         .create(&ChannelCreateReqDto {
@@ -80,7 +83,10 @@ async fn channel_write() {
 
     let client = MegaphoneRestClient::new(
         "localhost",
-        container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await,
+        container
+            .get_host_port_ipv4(k3s::TRAEFIK_HTTP)
+            .await
+            .expect("Error retrieving traefik port"),
     );
     let create_res = client
         .create(&ChannelCreateReqDto {
@@ -115,7 +121,10 @@ async fn channel_read_write() {
 
     let client = MegaphoneRestClient::new(
         "localhost",
-        container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await,
+        container
+            .get_host_port_ipv4(k3s::TRAEFIK_HTTP)
+            .await
+            .expect("Error retrieving traefik port"),
     );
     let create_res = client
         .create(&ChannelCreateReqDto {
@@ -163,7 +172,10 @@ async fn channel_multi_read_write() {
 
     let client = MegaphoneRestClient::new(
         "localhost",
-        container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await,
+        container
+            .get_host_port_ipv4(k3s::TRAEFIK_HTTP)
+            .await
+            .expect("Error retrieving traefik port"),
     );
     let create_res = client
         .create(&ChannelCreateReqDto {
@@ -195,7 +207,10 @@ async fn channel_multi_read_write() {
     let mut read_client = MegaphoneClient::new(
         &format!(
             "http://localhost:{}/read",
-            container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await
+            container
+                .get_host_port_ipv4(k3s::TRAEFIK_HTTP)
+                .await
+                .expect("Error retrieving traefik port")
         ),
         100,
     );
@@ -292,7 +307,10 @@ async fn verify_multi_stream_rw(
 
     let client = MegaphoneRestClient::new(
         "localhost",
-        container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await,
+        container
+            .get_host_port_ipv4(k3s::TRAEFIK_HTTP)
+            .await
+            .expect("Error retrieving traefik port"),
     );
     let create_res = client
         .create(&ChannelCreateReqDto {
@@ -323,7 +341,10 @@ async fn verify_multi_stream_rw(
         Ok(())
     });
 
-    let port = container.get_host_port_ipv4(k3s::TRAEFIK_HTTP).await;
+    let port = container
+        .get_host_port_ipv4(k3s::TRAEFIK_HTTP)
+        .await
+        .expect("Error retrieving traefik port");
     let mut read_client = MegaphoneClient::new(&format!("http://localhost:{}/read", port), 100);
     let channel = create_res.consumer_address.to_string();
     let mut even_stream = read_client

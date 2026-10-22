@@ -24,7 +24,7 @@ pub fn megaphone_sts(replicas: i32) -> StatefulSet {
                 ),
                 ..Default::default()
             },
-            service_name: String::from("megaphone-headless"),
+            service_name: Some(String::from("megaphone-headless")),
             template: PodTemplateSpec {
                 metadata: Some(ObjectMeta {
                     labels: Some(

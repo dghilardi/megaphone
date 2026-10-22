@@ -1,5 +1,5 @@
-use testcontainers::core::WaitFor;
-use testcontainers::{Image, ImageArgs};
+use testcontainers::core::{ContainerPort, WaitFor};
+use testcontainers::Image;
 
 const NAME: &str = "rancher/k3s";
 const TAG: &str = "v1.28.8-k3s1";
@@ -10,33 +10,30 @@ pub const RANCHER_WEBHOOK_PORT: u16 = 8443;
 #[derive(Debug, Default, Clone)]
 pub struct K3s;
 
-#[derive(Default, Debug, Clone)]
-pub struct K3sArgs;
-
-impl ImageArgs for K3sArgs {
-    fn into_iterator(self) -> Box<dyn Iterator<Item = String>> {
-        Box::new([String::from("server"), String::from("--snapshotter=native")].into_iter())
-    }
-}
-
 impl Image for K3s {
-    type Args = K3sArgs;
-
-    fn name(&self) -> String {
-        NAME.to_string()
+    fn name(&self) -> &str {
+        NAME
     }
 
-    fn tag(&self) -> String {
-        TAG.to_string()
+    fn tag(&self) -> &str {
+        TAG
     }
 
     fn ready_conditions(&self) -> Vec<WaitFor> {
-        vec![WaitFor::StdErrMessage {
-            message: String::from("Node controller sync successful"),
-        }]
+        vec![WaitFor::message_on_stderr(
+            "Node controller sync successful",
+        )]
     }
 
-    fn expose_ports(&self) -> Vec<u16> {
-        vec![KUBE_SECURE_PORT, RANCHER_WEBHOOK_PORT, TRAEFIK_HTTP]
+    fn cmd(&self) -> impl IntoIterator<Item = impl Into<std::borrow::Cow<'_, str>>> {
+        ["server", "--snapshotter=native"]
+    }
+
+    fn expose_ports(&self) -> &[ContainerPort] {
+        &[
+            ContainerPort::Tcp(KUBE_SECURE_PORT),
+            ContainerPort::Tcp(RANCHER_WEBHOOK_PORT),
+            ContainerPort::Tcp(TRAEFIK_HTTP),
+        ]
     }
 }

@@ -89,7 +89,7 @@ pub fn nginx_deployment() -> Deployment {
                     volumes: Some(vec![Volume {
                         name: String::from("nginx-config"),
                         config_map: Some(ConfigMapVolumeSource {
-                            name: Some(String::from("nginx-configmap")),
+                            name: String::from("nginx-configmap"),
                             ..Default::default()
                         }),
                         ..Default::default()

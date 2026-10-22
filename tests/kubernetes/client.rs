@@ -21,7 +21,10 @@ pub async fn get_kube_client(
 
     let mut config = Kubeconfig::from_yaml(&conf_yaml).context("Error loading kube config")?;
 
-    let port = container.get_host_port_ipv4(k3s::KUBE_SECURE_PORT).await;
+    let port = container
+        .get_host_port_ipv4(k3s::KUBE_SECURE_PORT)
+        .await
+        .context("Error retrieving kube api port")?;
     config.clusters.iter_mut().for_each(|cluster| {
         if let Some(server) = cluster.cluster.as_mut().and_then(|c| c.server.as_mut()) {
             *server = format!("https://127.0.0.1:{}", port)

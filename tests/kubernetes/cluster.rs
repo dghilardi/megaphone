@@ -12,7 +12,7 @@ use kube::runtime::{watcher, WatchStreamExt};
 use kube::{Api, Client, ResourceExt};
 use testcontainers::core::Mount;
 use testcontainers::runners::AsyncRunner;
-use testcontainers::{ContainerAsync, RunnableImage};
+use testcontainers::{ContainerAsync, ImageExt};
 
 use crate::kubernetes::client::get_kube_client;
 use crate::testcontainers_ext::k3s::K3s;
@@ -78,8 +78,8 @@ pub async fn prepare_cluster(
 ) -> anyhow::Result<ContainerAsync<K3s>> {
     docker::builder::build_images(airgap_dir)?;
 
-    let k3s = RunnableImage::from(K3s::default())
-        .with_env_var(("K3S_KUBECONFIG_MODE", "644"))
+    let k3s = K3s
+        .with_env_var("K3S_KUBECONFIG_MODE", "644")
         .with_privileged(true)
         .with_userns_mode("host")
         .with_mount(Mount::bind_mount(
@@ -90,7 +90,7 @@ pub async fn prepare_cluster(
             conf_dir.to_str().unwrap_or_default(),
             "/etc/rancher/k3s/",
         ));
-    let k3s_container = k3s.start().await;
+    let k3s_container = k3s.start().await.context("Error starting k3s container")?;
 
     let client = get_kube_client(&k3s_container, conf_dir)
         .await
