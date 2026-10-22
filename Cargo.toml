@@ -39,9 +39,10 @@ regex = "1.10.2"
 clap = { version = "4.1.6", features = ["derive"], optional = true }
 hyper = { version = "0.14.28", optional = true }
 
-tonic = "0.11"
-prost = "0.12"
-prost-types = "0.12.1"
+tonic = "0.14"
+tonic-prost = "0.14"
+prost = "0.14"
+prost-types = "0.14"
 hex = "0.4.3"
 
 megaphone = "0.10"
@@ -58,7 +59,7 @@ name = "megactl"
 required-features = ["bin-cli"]
 
 [build-dependencies]
-tonic-build = "0.11"
+tonic-prost-build = "0.14"
 
 [dev-dependencies]
 kube = { version = "0.90.0", features = ["runtime", "derive"] }
