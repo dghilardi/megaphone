@@ -9,7 +9,7 @@ use megaphone::dto::channel::ChannelCreateReqDto;
 use megaphone::model::constants::protocols::HTTP_STREAM_NDJSON_V1;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::sync::OnceLock;
+use std::sync::{Once, OnceLock};
 use std::time::Duration;
 use testcontainers::ContainerAsync;
 use tokio::task::JoinHandle;
@@ -31,8 +31,33 @@ lazy_static! {
         tempfile::tempdir().expect("Error creating conf temp dir");
 }
 static CONTAINER: OnceLock<ContainerAsync<K3s>> = OnceLock::new();
+static CLEANUP_REGISTRATION: Once = Once::new();
+
+extern "C" {
+    fn atexit(callback: extern "C" fn()) -> std::os::raw::c_int;
+}
+
+/// Statics are never dropped, remove the shared cluster and temp dirs when the test process exits
+extern "C" fn cleanup_cluster() {
+    if let Some(container) = CONTAINER.get() {
+        let out = std::process::Command::new("docker")
+            .args(["rm", "--force", "--volumes", container.id()])
+            .output();
+        if let Err(err) = out {
+            eprintln!("Error removing k3s container - {err}");
+        }
+    }
+    for dir in [AIRGAP_DIR.path(), K3S_CONF_DIR.path()] {
+        if let Err(err) = std::fs::remove_dir_all(dir) {
+            eprintln!("Error removing temp dir {dir:?} - {err}");
+        }
+    }
+}
 
 async fn get_container() -> anyhow::Result<&'static ContainerAsync<K3s>> {
+    CLEANUP_REGISTRATION.call_once(|| unsafe {
+        atexit(cleanup_cluster);
+    });
     let result = if let Some(container) = CONTAINER.get() {
         container
     } else {
