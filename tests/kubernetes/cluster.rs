@@ -15,6 +15,7 @@ use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, ImageExt};
 
 use crate::kubernetes::client::get_kube_client;
+use crate::testcontainers_ext::k3s;
 use crate::testcontainers_ext::k3s::K3s;
 use crate::{docker, kubernetes};
 
@@ -70,6 +71,30 @@ async fn wait_cluster_ready(client: &Client) -> anyhow::Result<()> {
         }
     }
     anyhow::bail!("Stream terminated before all pod running")
+}
+
+/// Pods may be running before traefik routes requests, wait until megaphone is reachable through the ingress
+async fn wait_ingress_ready(container: &ContainerAsync<K3s>) -> anyhow::Result<()> {
+    let port = container
+        .get_host_port_ipv4(k3s::TRAEFIK_HTTP)
+        .await
+        .context("Error retrieving traefik port")?;
+    let deadline_ts = SystemTime::now() + Duration::from_secs(300);
+    loop {
+        let res = reqwest::Client::new()
+            .post(format!("http://localhost:{port}/create"))
+            .send()
+            .await;
+        match res {
+            Ok(res) if res.status().is_success() => return Ok(()),
+            Ok(res) => log::debug!("Ingress not ready - status {}", res.status()),
+            Err(err) => log::debug!("Ingress not ready - {err}"),
+        }
+        if deadline_ts < SystemTime::now() {
+            anyhow::bail!("Deadline reached waiting for ingress");
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
 }
 
 pub async fn prepare_cluster(
@@ -161,6 +186,10 @@ pub async fn prepare_cluster(
     wait_cluster_ready(&client)
         .await
         .context("Error awaiting cluster readiness")?;
+
+    wait_ingress_ready(&k3s_container)
+        .await
+        .context("Error awaiting ingress readiness")?;
 
     Ok(k3s_container)
 }
