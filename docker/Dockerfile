@@ -21,6 +21,7 @@ FROM debian:bookworm-slim as dist
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
+    ca-certificates \
     && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
