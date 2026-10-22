@@ -82,6 +82,7 @@ pub async fn prepare_cluster(
         .with_env_var("K3S_KUBECONFIG_MODE", "644")
         .with_privileged(true)
         .with_userns_mode("host")
+        .with_startup_timeout(Duration::from_secs(600))
         .with_mount(Mount::bind_mount(
             airgap_dir.to_str().unwrap_or_default(),
             "/var/lib/rancher/k3s/agent/images/",
