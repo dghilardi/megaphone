@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated test dependencies: `kube` 4, `k8s-openapi` 0.28, `testcontainers` 0.28
 - Updated `reqwest` to 0.13, keeping the native TLS backend for webhooks
 - Updated `axum` to 0.8 and `hyper` to 1 (management socket served by axum, `hyperlocal` only used by `megactl`); `megactl` errors now include their cause
+- HTTP/2 connections to the HTTP API are now limited to 200 concurrent streams (hyper 1 default), clients exceeding it must open additional connections
 - Updated `tonic`/`prost` to 0.14 (code generation via `tonic-prost-build`)
 - Updated `thiserror` 2, `dashmap` 6, `config` 0.15, `base64` 0.23, `md5` 0.8, `rand` 0.10, `metrics` 0.24, `metrics-exporter-prometheus` 0.18 (without unused HTTP listener and push gateway)
 - Rust toolchain bumped to 1.99.1
